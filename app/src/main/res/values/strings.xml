@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Meu Carro</string>
+    <string name="alias_pessoal">Meu Carro Pessoal</string>
+    <string name="alias_uber">Meu Carro Uber</string>
+    <string name="shortcut_pessoal_short">Modo Pessoal</string>
+    <string name="shortcut_pessoal_long">Iniciar registro no modo Pessoal</string>
+    <string name="shortcut_uber_short">Modo Uber</string>
+    <string name="shortcut_uber_long">Iniciar registro no modo Uber</string>
+</resources>
