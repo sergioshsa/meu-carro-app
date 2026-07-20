@@ -41,7 +41,12 @@
         <Button android:id="@+id/btnUsage" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:text="Conceder acesso de uso (necessário 1x)"
             android:textColor="#FFFFFF" android:backgroundTint="#2A2A2A" android:textSize="13sp"
-            android:layout_marginBottom="20dp" />
+            android:layout_marginBottom="8dp" />
+
+        <Button android:id="@+id/btnTest" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="TESTAR DETECÇÃO AGORA"
+            android:textColor="#0E0E0E" android:backgroundTint="#E0A030" android:textStyle="bold"
+            android:textSize="13sp" android:layout_marginBottom="20dp" />
 
         <TextView android:id="@+id/tvMonth" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:text="MÊS ATUAL" android:textColor="#FFFFFF"
