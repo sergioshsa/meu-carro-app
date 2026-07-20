@@ -2,6 +2,7 @@ package com.sergiosantos.meucarro
 
 import android.Manifest
 import android.app.AppOpsManager
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnAuto).setOnClickListener { startAuto() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopTracking() }
         findViewById<Button>(R.id.btnUsage).setOnClickListener { openUsageAccess() }
+        findViewById<Button>(R.id.btnTest).setOnClickListener { testDetection() }
         findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
         findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
@@ -159,6 +161,40 @@ class MainActivity : AppCompatActivity() {
     private fun openUsageAccess() {
         try { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
         catch (e: Exception) { Toast.makeText(this, "Abra: Configurações > Acesso de uso", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun uberLastUsed(): Long {
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 24L * 60 * 60 * 1000, now)
+            var last = 0L
+            if (stats != null) for (s in stats) {
+                if (s.packageName == "com.ubercab.driver" && s.lastTimeUsed > last) last = s.lastTimeUsed
+            }
+            last
+        } catch (e: Exception) { 0L }
+    }
+
+    private fun recentUber(): Boolean {
+        if (!hasUsageAccess()) return false
+        val last = uberLastUsed()
+        return last > 0 && (System.currentTimeMillis() - last) <= 10 * 60 * 1000L
+    }
+
+    private fun testDetection() {
+        val access = hasUsageAccess()
+        val last = uberLastUsed()
+        val now = System.currentTimeMillis()
+        val sb = StringBuilder()
+        sb.append(if (access) "OK - Acesso de uso: CONCEDIDO\n\n"
+                  else "FALTA - Acesso de uso NAO concedido.\nToque em \"Conceder acesso de uso\" e ative o Meu Carro na lista.\n\n")
+        if (last <= 0L) sb.append("Uber Driver: nenhum uso detectado nas ultimas 24h.\n")
+        else sb.append("Uber Driver usado ha " + ((now - last) / 60000) + " min.\n")
+        val detected = if (access && last > 0 && (now - last) <= 10 * 60 * 1000L) "UBER" else "PESSOAL"
+        sb.append("\nModo detectado agora: " + detected)
+        AlertDialog.Builder(this).setTitle("Teste de deteccao").setMessage(sb.toString())
+            .setPositiveButton("OK", null).show()
     }
 
     private fun askNotificationPermission() {
@@ -267,9 +303,12 @@ class MainActivity : AppCompatActivity() {
 
         val mode = Storage.getMode(this)
         val auto = Storage.isAutoEnabled(this)
-        tvStatus.text = when {
-            mode == Storage.MODE_UBER -> if (auto) "● AUTOMÁTICO — detectado: UBER" else "● REGISTRANDO: UBER (manual)"
-            mode == Storage.MODE_PESSOAL -> if (auto) "● AUTOMÁTICO — detectado: PESSOAL" else "● REGISTRANDO: PESSOAL (manual)"
+        tvStatus.text = if (auto) {
+            val live = if (recentUber()) "UBER" else "PESSOAL"
+            "● AUTOMÁTICO ligado — detectando agora: $live"
+        } else when (mode) {
+            Storage.MODE_UBER -> "● REGISTRANDO: UBER (manual)"
+            Storage.MODE_PESSOAL -> "● REGISTRANDO: PESSOAL (manual)"
             else -> "○ Parado (toque em Ativar modo automático)"
         }
 
