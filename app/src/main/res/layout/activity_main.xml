@@ -48,6 +48,17 @@
             android:textColor="#0E0E0E" android:backgroundTint="#E0A030" android:textStyle="bold"
             android:textSize="13sp" android:layout_marginBottom="20dp" />
 
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="8dp">
+            <Button android:id="@+id/btnPrevMonth" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="◀ Mês anterior"
+                android:textColor="#FFFFFF" android:backgroundTint="#2A2A2A" android:textSize="12sp"
+                android:layout_marginEnd="6dp" />
+            <Button android:id="@+id/btnNextMonth" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="Próximo ▶"
+                android:textColor="#FFFFFF" android:backgroundTint="#2A2A2A" android:textSize="12sp" />
+        </LinearLayout>
+
         <TextView android:id="@+id/tvMonth" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:text="MÊS ATUAL" android:textColor="#FFFFFF"
             android:textSize="15sp" android:lineSpacingExtra="4dp" android:padding="14dp"
