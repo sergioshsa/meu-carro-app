@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -36,6 +37,38 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCalcResult: TextView
 
     private var pendingAuto = false
+    private var selectedYm = Storage.currentYm()
+
+    private val exportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            try {
+                contentResolver.openOutputStream(uri)?.use { it.write(Storage.exportJson(this).toByteArray()) }
+                Toast.makeText(this, "Backup salvo com sucesso", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Erro ao salvar o backup", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private val importLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+                if (Storage.importJson(this, text)) {
+                    Toast.makeText(this, "Backup restaurado", Toast.LENGTH_SHORT).show()
+                    refresh()
+                } else {
+                    Toast.makeText(this, "Arquivo de backup inválido", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this, "Erro ao importar o backup", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     private val REQ_LOCATION = 100
     private val REQ_NOTIF = 101
 
@@ -64,6 +97,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
         findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
+        findViewById<Button>(R.id.btnPrevMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, -1); refresh() }
+        findViewById<Button>(R.id.btnNextMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, 1); refresh() }
+        findViewById<Button>(R.id.btnExport).setOnClickListener { exportLauncher.launch("meucarro_backup.json") }
+        findViewById<Button>(R.id.btnImport).setOnClickListener { importLauncher.launch(arrayOf("application/json", "*/*")) }
 
         askNotificationPermission()
         handleIntent(intent)
@@ -288,6 +325,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------------- Tela ----------------
+    private fun shiftYm(ym: String, delta: Int): String {
+        return try {
+            val parts = ym.split("-")
+            var y = parts[0].toInt()
+            var m = parts[1].toInt() + delta
+            while (m < 1) { m += 12; y-- }
+            while (m > 12) { m -= 12; y++ }
+            String.format("%04d-%02d", y, m)
+        } catch (e: Exception) { Storage.currentYm() }
+    }
+
     private fun monthLabel(ym: String): String {
         return try {
             val parts = ym.split("-")
@@ -316,13 +364,14 @@ class MainActivity : AppCompatActivity() {
             "⚠ Acesso de uso não concedido: sem ele, tudo conta como Pessoal. Toque em \"Conceder acesso de uso\"."
         else "✓ Acesso de uso concedido."
 
-        // Mês atual
-        val ym = Storage.currentYm()
+        // Mês selecionado (navegável com os botões)
+        val ym = selectedYm
         val mp = Storage.getMonthMeters(this, Storage.MODE_PESSOAL, ym) / 1000.0
         val mu = Storage.getMonthMeters(this, Storage.MODE_UBER, ym) / 1000.0
+        val atual = if (ym == Storage.currentYm()) "  (mês atual)" else ""
         tvMonth.text = String.format(loc,
-            "MÊS ATUAL — %s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
-            monthLabel(ym), mp, mu, mp + mu)
+            "MÊS: %s%s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
+            monthLabel(ym), atual, mp, mu, mp + mu)
 
         // Totais + histórico por mês
         val sb = StringBuilder()
