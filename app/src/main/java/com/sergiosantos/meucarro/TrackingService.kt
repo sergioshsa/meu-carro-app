@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -16,15 +17,17 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
 /**
- * Servico em primeiro plano que escuta o GPS e acumula a distancia percorrida
- * no modo atual (Pessoal ou Uber). Continua rodando mesmo com o app fechado
- * ou a tela apagada, com uma notificacao fixa.
+ * Serviço em primeiro plano: escuta o GPS e acumula a distância no modo atual.
+ * No modo AUTOMÁTICO, decide Uber x Pessoal conforme o app Uber Driver tenha
+ * sido usado nos últimos minutos (via UsageStatsManager).
  */
 class TrackingService : Service(), LocationListener {
 
     private var locationManager: LocationManager? = null
     private var lastLocation: Location? = null
-    private var mode: String = Storage.MODE_PESSOAL
+    private var fixedMode: String = Storage.MODE_PESSOAL
+    private var autoMode: Boolean = false
+    private var lastEffectiveMode: String = Storage.MODE_PESSOAL
 
     companion object {
         const val ACTION_START = "com.sergiosantos.meucarro.START"
@@ -35,8 +38,13 @@ class TrackingService : Service(), LocationListener {
 
         const val MIN_TIME_MS = 2000L
         const val MIN_DIST_M = 5f
-        const val MAX_ACCURACY_M = 40f      // ignora fixes ruins
-        const val MAX_JUMP_M = 300.0        // ignora saltos irreais entre 2 fixes
+        const val MAX_ACCURACY_M = 40f
+        const val MAX_JUMP_M = 300.0
+
+        // Pacote do app Uber Driver (motorista)
+        const val UBER_PACKAGE = "com.ubercab.driver"
+        // Se o Uber Driver foi usado nos últimos X ms, considera modo UBER
+        const val UBER_ACTIVE_WINDOW_MS = 10 * 60 * 1000L
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -45,13 +53,22 @@ class TrackingService : Service(), LocationListener {
         when (intent?.action) {
             ACTION_STOP -> {
                 stopTracking()
+                Storage.setAutoEnabled(this, false)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
             }
             else -> {
-                mode = intent?.getStringExtra(EXTRA_MODE) ?: Storage.MODE_PESSOAL
-                Storage.setMode(this, mode)
+                val requested = intent?.getStringExtra(EXTRA_MODE) ?: Storage.MODE_AUTO
+                autoMode = (requested == Storage.MODE_AUTO)
+                if (autoMode) {
+                    Storage.setAutoEnabled(this, true)
+                    lastEffectiveMode = detectMode()
+                } else {
+                    fixedMode = requested
+                    lastEffectiveMode = requested
+                }
+                Storage.setMode(this, lastEffectiveMode)
                 startForeground(NOTIF_ID, buildNotification())
                 startTracking()
             }
@@ -65,12 +82,9 @@ class TrackingService : Service(), LocationListener {
         locationManager = lm
         try {
             if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, MIN_TIME_MS, MIN_DIST_M, this
-                )
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_MS, MIN_DIST_M, this)
             }
         } catch (e: SecurityException) {
-            // sem permissao de localizacao: para o servico
             stopSelf()
         }
     }
@@ -81,8 +95,41 @@ class TrackingService : Service(), LocationListener {
         Storage.setMode(this, Storage.MODE_NONE)
     }
 
+    /** Modo efetivo agora: no automático, verifica o Uber Driver. */
+    private fun effectiveMode(): String {
+        return if (autoMode) detectMode() else fixedMode
+    }
+
+    /** Retorna UBER se o Uber Driver foi usado recentemente; senão PESSOAL. */
+    private fun detectMode(): String {
+        return try {
+            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+            val now = System.currentTimeMillis()
+            val stats = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, now - 24L * 60 * 60 * 1000, now
+            )
+            var uberLast = 0L
+            if (stats != null) {
+                for (s in stats) {
+                    if (s.packageName == UBER_PACKAGE && s.lastTimeUsed > uberLast) {
+                        uberLast = s.lastTimeUsed
+                    }
+                }
+            }
+            if (uberLast > 0 && (now - uberLast) <= UBER_ACTIVE_WINDOW_MS)
+                Storage.MODE_UBER else Storage.MODE_PESSOAL
+        } catch (e: Exception) {
+            Storage.MODE_PESSOAL
+        }
+    }
+
     override fun onLocationChanged(location: Location) {
         if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
+        val mode = effectiveMode()
+        if (mode != lastEffectiveMode) {
+            lastEffectiveMode = mode
+            Storage.setMode(this, mode)
+        }
         val prev = lastLocation
         if (prev != null) {
             val d = prev.distanceTo(location).toDouble()
@@ -94,7 +141,6 @@ class TrackingService : Service(), LocationListener {
         lastLocation = location
     }
 
-    // callbacks antigos exigidos por algumas versoes
     override fun onProviderEnabled(provider: String) {}
     override fun onProviderDisabled(provider: String) {}
     @Deprecated("Deprecated in Java")
@@ -103,23 +149,21 @@ class TrackingService : Service(), LocationListener {
     private fun buildNotification(): Notification {
         createChannel()
         val openIntent = PendingIntent.getActivity(
-            this, 0,
-            Intent(this, MainActivity::class.java),
+            this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val stopIntent = PendingIntent.getService(
-            this, 1,
-            Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
+            this, 1, Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val mode = lastEffectiveMode
         val modeLabel = if (mode == Storage.MODE_UBER) "UBER" else "PESSOAL"
         val km = if (mode == Storage.MODE_UBER)
-            Storage.getMetersUber(this) / 1000.0
-        else
-            Storage.getMetersPessoal(this) / 1000.0
-
+            Storage.getMetersUber(this) / 1000.0 else Storage.getMetersPessoal(this) / 1000.0
+        val title = if (autoMode) "Meu Carro - Automático ($modeLabel)"
+                    else "Meu Carro - Modo $modeLabel"
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Meu Carro - Modo $modeLabel")
+            .setContentTitle(title)
             .setContentText(String.format("Registrando: %.2f km", km))
             .setSmallIcon(R.drawable.ic_car)
             .setOngoing(true)
@@ -139,10 +183,9 @@ class TrackingService : Service(), LocationListener {
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 val ch = NotificationChannel(
-                    CHANNEL_ID, "Registro de quilometragem",
-                    NotificationManager.IMPORTANCE_LOW
+                    CHANNEL_ID, "Registro de quilometragem", NotificationManager.IMPORTANCE_LOW
                 )
-                ch.description = "Notificacao ativa enquanto o app registra os km."
+                ch.description = "Notificação ativa enquanto o app registra os km."
                 nm.createNotificationChannel(ch)
             }
         }
