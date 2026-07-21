@@ -109,6 +109,41 @@
             android:background="#1C1C1C" android:layout_marginBottom="20dp" />
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="SINCRONIZAÇÃO NA NUVEM" android:textColor="#C9A043" android:textSize="15sp"
+            android:textStyle="bold" android:layout_marginBottom="2dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Crie um código secreto. Envia sozinho ao sair do app. Em outro celular, use o mesmo código e toque em Baixar para restaurar tudo."
+            android:textColor="#AAAAAA" android:textSize="12sp" android:layout_marginBottom="8dp" />
+
+        <EditText android:id="@+id/etSyncCode" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="Código de sincronização (ex: sergio-2026)"
+            android:textColorHint="#777777" android:textColor="#FFFFFF"
+            android:inputType="textNoSuggestions" android:backgroundTint="#C9A043"
+            android:layout_marginBottom="8dp" />
+
+        <Button android:id="@+id/btnSaveSync" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="SALVAR CÓDIGO"
+            android:textColor="#0E0E0E" android:backgroundTint="#C9A043" android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="8dp">
+            <Button android:id="@+id/btnPush" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="ENVIAR AGORA"
+                android:textColor="#FFFFFF" android:backgroundTint="#1A6B2A" android:textStyle="bold"
+                android:textSize="12sp" android:layout_marginEnd="6dp" />
+            <Button android:id="@+id/btnPull" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="BAIXAR (RESTAURAR)"
+                android:textColor="#FFFFFF" android:backgroundTint="#1A5276" android:textStyle="bold"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView android:id="@+id/tvSyncStatus" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="" android:textColor="#AAAAAA"
+            android:textSize="12sp" android:padding="10dp" android:background="#14261B"
+            android:layout_marginBottom="20dp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="BACKUP DOS DADOS" android:textColor="#C9A043" android:textSize="15sp"
             android:textStyle="bold" android:layout_marginBottom="2dp" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
