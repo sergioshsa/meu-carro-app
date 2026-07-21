@@ -44,27 +44,6 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
-        <activity-alias
-            android:name=".AliasPessoal"
-            android:targetActivity=".MainActivity"
-            android:label="@string/alias_pessoal"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
-
-        <activity-alias
-            android:name=".AliasUber"
-            android:targetActivity=".MainActivity"
-            android:label="@string/alias_uber"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity-alias>
 
         <service
             android:name=".TrackingService"
