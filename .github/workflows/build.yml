@@ -28,12 +28,26 @@ jobs:
         run: |
           yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
 
+      - name: Restaurar e verificar keystore (assinatura fixa)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KS_PASS }}
+        run: |
+          printf '%s' "$KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > app/meucarro.keystore
+          echo "Keystore restaurado: $(wc -c < app/meucarro.keystore) bytes"
+          if [ ! -s app/meucarro.keystore ]; then echo "ERRO: keystore vazio (segredo KEYSTORE_BASE64)"; exit 1; fi
+          keytool -list -keystore app/meucarro.keystore -storepass "$KS_PASS" -alias meucarro >/dev/null \
+            && echo "OK: keystore e senha conferem" \
+            || { echo "ERRO: KS_PASS incorreta ou keystore invalido"; exit 1; }
+
       - name: Instalar Gradle e compilar o APK
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
       - name: Gerar APK (debug)
+        env:
+          KS_PASS: ${{ secrets.KS_PASS }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Publicar APK como artifact
