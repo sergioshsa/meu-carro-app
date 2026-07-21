@@ -9,21 +9,27 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Build
-import android.os.Bundle
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 
 /**
- * Serviço em primeiro plano: escuta o GPS e acumula a distância no modo atual.
- * No modo AUTOMÁTICO, decide Uber x Pessoal conforme o app Uber Driver tenha
- * sido usado nos últimos minutos (via UsageStatsManager).
+ * Serviço em primeiro plano: usa o FusedLocationProvider (GPS + wifi + sensores)
+ * para medir a distância com mais precisão. Só acumula quilômetro quando o carro
+ * está de fato em movimento (pela velocidade), evitando "km fantasma" parado.
+ * No modo AUTOMÁTICO decide Uber x Pessoal pelo uso recente do app Uber Driver.
  */
-class TrackingService : Service(), LocationListener {
+class TrackingService : Service() {
 
-    private var locationManager: LocationManager? = null
+    private var fused: FusedLocationProviderClient? = null
+    private var callback: LocationCallback? = null
     private var lastLocation: Location? = null
     private var fixedMode: String = Storage.MODE_PESSOAL
     private var autoMode: Boolean = false
@@ -36,14 +42,14 @@ class TrackingService : Service(), LocationListener {
         const val CHANNEL_ID = "meucarro_tracking"
         const val NOTIF_ID = 42
 
-        const val MIN_TIME_MS = 2000L
-        const val MIN_DIST_M = 5f
-        const val MAX_ACCURACY_M = 40f
-        const val MAX_JUMP_M = 300.0
+        const val UPDATE_MS = 2000L
+        const val MIN_UPDATE_MS = 1000L
+        const val MAX_ACCURACY_M = 30f      // ignora fixes ruins
+        const val MAX_JUMP_M = 300.0        // ignora saltos irreais
+        const val MIN_SPEED_MS = 0.6f       // ~2,2 km/h: abaixo disso considera parado
+        const val MIN_DIST_IF_NO_SPEED = 8.0 // sem velocidade, só conta se andou > 8 m
 
-        // Pacote do app Uber Driver (motorista)
         const val UBER_PACKAGE = "com.ubercab.driver"
-        // Se o Uber Driver foi usado nos últimos X ms, considera modo UBER
         const val UBER_ACTIVE_WINDOW_MS = 10 * 60 * 1000L
     }
 
@@ -78,29 +84,51 @@ class TrackingService : Service(), LocationListener {
 
     private fun startTracking() {
         lastLocation = null
-        val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        locationManager = lm
-        try {
-            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_MS, MIN_DIST_M, this)
+        val client = LocationServices.getFusedLocationProviderClient(this)
+        fused = client
+        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, UPDATE_MS)
+            .setMinUpdateIntervalMillis(MIN_UPDATE_MS)
+            .setMinUpdateDistanceMeters(0f)
+            .build()
+        val cb = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                for (loc in result.locations) handleLocation(loc)
             }
+        }
+        callback = cb
+        try {
+            client.requestLocationUpdates(req, cb, Looper.getMainLooper())
         } catch (e: SecurityException) {
             stopSelf()
         }
     }
 
     private fun stopTracking() {
-        try { locationManager?.removeUpdates(this) } catch (e: Exception) {}
-        locationManager = null
+        try { callback?.let { fused?.removeLocationUpdates(it) } } catch (e: Exception) {}
+        callback = null
+        fused = null
         Storage.setMode(this, Storage.MODE_NONE)
     }
 
-    /** Modo efetivo agora: no automático, verifica o Uber Driver. */
-    private fun effectiveMode(): String {
-        return if (autoMode) detectMode() else fixedMode
+    private fun handleLocation(location: Location) {
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
+        val mode = if (autoMode) detectMode() else fixedMode
+        if (mode != lastEffectiveMode) {
+            lastEffectiveMode = mode
+            Storage.setMode(this, mode)
+        }
+        val prev = lastLocation
+        if (prev != null) {
+            val d = prev.distanceTo(location).toDouble()
+            val moving = location.hasSpeed() && location.speed > MIN_SPEED_MS
+            if (d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
+                Storage.addMeters(this, mode, d)
+                updateNotification()
+            }
+        }
+        lastLocation = location
     }
 
-    /** Retorna UBER se o Uber Driver foi usado recentemente; senão PESSOAL. */
     private fun detectMode(): String {
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -111,40 +139,13 @@ class TrackingService : Service(), LocationListener {
             var uberLast = 0L
             if (stats != null) {
                 for (s in stats) {
-                    if (s.packageName == UBER_PACKAGE && s.lastTimeUsed > uberLast) {
-                        uberLast = s.lastTimeUsed
-                    }
+                    if (s.packageName == UBER_PACKAGE && s.lastTimeUsed > uberLast) uberLast = s.lastTimeUsed
                 }
             }
             if (uberLast > 0 && (now - uberLast) <= UBER_ACTIVE_WINDOW_MS)
                 Storage.MODE_UBER else Storage.MODE_PESSOAL
-        } catch (e: Exception) {
-            Storage.MODE_PESSOAL
-        }
+        } catch (e: Exception) { Storage.MODE_PESSOAL }
     }
-
-    override fun onLocationChanged(location: Location) {
-        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
-        val mode = effectiveMode()
-        if (mode != lastEffectiveMode) {
-            lastEffectiveMode = mode
-            Storage.setMode(this, mode)
-        }
-        val prev = lastLocation
-        if (prev != null) {
-            val d = prev.distanceTo(location).toDouble()
-            if (d in 0.5..MAX_JUMP_M) {
-                Storage.addMeters(this, mode, d)
-                updateNotification()
-            }
-        }
-        lastLocation = location
-    }
-
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {}
-    @Deprecated("Deprecated in Java")
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
 
     private fun buildNotification(): Notification {
         createChannel()
@@ -160,8 +161,7 @@ class TrackingService : Service(), LocationListener {
         val modeLabel = if (mode == Storage.MODE_UBER) "UBER" else "PESSOAL"
         val km = if (mode == Storage.MODE_UBER)
             Storage.getMetersUber(this) / 1000.0 else Storage.getMetersPessoal(this) / 1000.0
-        val title = if (autoMode) "Meu Carro - Automático ($modeLabel)"
-                    else "Meu Carro - Modo $modeLabel"
+        val title = if (autoMode) "Meu Carro - Automático ($modeLabel)" else "Meu Carro - Modo $modeLabel"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(String.format("Registrando: %.2f km", km))
