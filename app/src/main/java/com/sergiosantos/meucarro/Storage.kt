@@ -21,6 +21,8 @@ object Storage {
     private const val KEY_MONTHS = "months_index"
     private const val KEY_AUTO = "auto_enabled"
     private const val KEY_SYNC_CODE = "sync_code"
+    private const val KEY_DESTINATIONS = "destinations"
+    private const val KEY_CUR_DEST = "cur_dest"
 
     const val MODE_NONE = ""
     const val MODE_PESSOAL = "PESSOAL"
@@ -102,6 +104,56 @@ object Storage {
         e.apply()
     }
 
+    // ---- Destinos / viagens ----
+
+    private fun destMetersKey(name: String, ym: String) = "dm_${name}_$ym"
+    private fun destCountKey(name: String, ym: String) = "dc_${name}_$ym"
+
+    fun getCurDest(c: Context): String = p(c).getString(KEY_CUR_DEST, "") ?: ""
+    fun setCurDest(c: Context, name: String) { p(c).edit().putString(KEY_CUR_DEST, name).apply() }
+
+    fun getDestinations(c: Context): List<String> {
+        val s = p(c).getString(KEY_DESTINATIONS, "[]") ?: "[]"
+        val arr = try { JSONArray(s) } catch (e: Exception) { JSONArray() }
+        val list = ArrayList<String>()
+        for (i in 0 until arr.length()) list.add(arr.getString(i))
+        return list
+    }
+
+    fun addDestination(c: Context, name: String) {
+        if (name.isBlank()) return
+        val list = getDestinations(c)
+        if (list.contains(name)) return
+        val arr = JSONArray()
+        for (n in list) arr.put(n)
+        arr.put(name)
+        p(c).edit().putString(KEY_DESTINATIONS, arr.toString()).apply()
+    }
+
+    fun getDestMeters(c: Context, name: String, ym: String): Double =
+        Double.fromBits(p(c).getLong(destMetersKey(name, ym), 0L))
+
+    fun getDestCount(c: Context, name: String, ym: String): Int =
+        p(c).getInt(destCountKey(name, ym), 0)
+
+    fun addDestMeters(c: Context, name: String, meters: Double) {
+        if (name.isBlank() || meters <= 0.0) return
+        val ym = currentYm()
+        val cur = getDestMeters(c, name, ym)
+        p(c).edit().putLong(destMetersKey(name, ym), (cur + meters).toRawBits()).apply()
+        registerMonth(c, ym)
+    }
+
+    /** Conta +1 viagem para o destino no mes atual (e salva o destino na lista). */
+    fun incDestTrip(c: Context, name: String) {
+        if (name.isBlank()) return
+        addDestination(c, name)
+        val ym = currentYm()
+        val cur = getDestCount(c, name, ym)
+        p(c).edit().putInt(destCountKey(name, ym), cur + 1).apply()
+        registerMonth(c, ym)
+    }
+
     // ---- Abastecimentos ----
     fun getFills(c: Context): JSONArray {
         val s = p(c).getString(KEY_FILLS, "[]") ?: "[]"
@@ -137,6 +189,20 @@ object Storage {
         }
         o.put("months", marr)
         o.put("months_data", mdata)
+        val darr = JSONArray()
+        val dd = JSONObject()
+        for (n in getDestinations(c)) {
+            darr.put(n)
+            val perMonth = JSONObject()
+            for (ym in getMonths(c)) {
+                val m = getDestMeters(c, n, ym)
+                val cnt = getDestCount(c, n, ym)
+                if (m > 0 || cnt > 0) perMonth.put(ym, JSONObject().put("m", m).put("c", cnt))
+            }
+            if (perMonth.length() > 0) dd.put(n, perMonth)
+        }
+        o.put("destinations", darr)
+        o.put("dest_data", dd)
         o.put("fills", getFills(c))
         return o.toString(2)
     }
@@ -154,6 +220,21 @@ object Storage {
                 val y = marr.getString(i)
                 e.putLong(monthKey(MODE_PESSOAL, y), mdata.optDouble(y + "|P", 0.0).toRawBits())
                 e.putLong(monthKey(MODE_UBER, y), mdata.optDouble(y + "|U", 0.0).toRawBits())
+            }
+            val darr = o.optJSONArray("destinations") ?: JSONArray()
+            e.putString(KEY_DESTINATIONS, darr.toString())
+            val dd = o.optJSONObject("dest_data") ?: JSONObject()
+            val dkeys = dd.keys()
+            while (dkeys.hasNext()) {
+                val n = dkeys.next()
+                val perMonth = dd.getJSONObject(n)
+                val yms = perMonth.keys()
+                while (yms.hasNext()) {
+                    val ym = yms.next()
+                    val obj = perMonth.getJSONObject(ym)
+                    e.putLong(destMetersKey(n, ym), obj.optDouble("m", 0.0).toRawBits())
+                    e.putInt(destCountKey(n, ym), obj.optInt("c", 0))
+                }
             }
             val fills = o.optJSONArray("fills")
             if (fills != null) e.putString(KEY_FILLS, fills.toString())

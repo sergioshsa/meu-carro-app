@@ -37,6 +37,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCalcResult: TextView
     private lateinit var etSyncCode: EditText
     private lateinit var tvSyncStatus: TextView
+    private lateinit var etDest: EditText
+    private lateinit var tvDest: TextView
 
     private var pendingAuto = false
     private var selectedYm = Storage.currentYm()
@@ -94,6 +96,11 @@ class MainActivity : AppCompatActivity() {
         etSyncCode = findViewById(R.id.etSyncCode)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
         etSyncCode.setText(Storage.getSyncCode(this))
+        etDest = findViewById(R.id.etDest)
+        tvDest = findViewById(R.id.tvDest)
+        findViewById<Button>(R.id.btnStartTrip).setOnClickListener { startTrip() }
+        findViewById<Button>(R.id.btnEndTrip).setOnClickListener { endTrip() }
+        findViewById<Button>(R.id.btnPickDest).setOnClickListener { pickDest() }
 
         findViewById<Button>(R.id.btnAuto).setOnClickListener { startAuto() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopTracking() }
@@ -163,6 +170,35 @@ class MainActivity : AppCompatActivity() {
                 if (success) refresh()
             }
         })
+    }
+
+    private fun startTrip() {
+        val name = etDest.text.toString().trim()
+        if (name.isEmpty()) {
+            Toast.makeText(this, "Escreva o destino desta viagem.", Toast.LENGTH_LONG).show(); return
+        }
+        Storage.incDestTrip(this, name)
+        Storage.setCurDest(this, name)
+        Toast.makeText(this, "Viagem para \"$name\" iniciada", Toast.LENGTH_SHORT).show()
+        if (Storage.getMode(this) == Storage.MODE_NONE) startAuto()
+        refresh()
+    }
+
+    private fun endTrip() {
+        val cur = Storage.getCurDest(this)
+        Storage.setCurDest(this, "")
+        if (cur.isNotEmpty()) Toast.makeText(this, "Viagem para \"$cur\" encerrada", Toast.LENGTH_SHORT).show()
+        refresh()
+    }
+
+    private fun pickDest() {
+        val dests = Storage.getDestinations(this).sorted()
+        if (dests.isEmpty()) { Toast.makeText(this, "Nenhum destino salvo ainda.", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Destinos salvos")
+            .setItems(dests.toTypedArray()) { _, which -> etDest.setText(dests[which]) }
+            .setNegativeButton("Fechar", null)
+            .show()
     }
 
     /** Atalhos de voz (opcionais) ainda funcionam para fixar um modo manual. */
@@ -426,6 +462,21 @@ class MainActivity : AppCompatActivity() {
         tvMonth.text = String.format(loc,
             "MÊS: %s%s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
             monthLabel(ym), atual, mp, mu, mp + mu)
+
+        val db = StringBuilder("DESTINOS — " + monthLabel(ym) + "\n")
+        var anyDest = false
+        for (n in Storage.getDestinations(this).sorted()) {
+            val cnt = Storage.getDestCount(this, n, ym)
+            val dkm = Storage.getDestMeters(this, n, ym) / 1000.0
+            if (cnt > 0 || dkm > 0) {
+                anyDest = true
+                db.append(String.format(loc, "%s: %dx · %.1f km\n", n, cnt, dkm))
+            }
+        }
+        if (!anyDest) db.append("Nenhuma viagem com destino neste mês.")
+        val curDest = Storage.getCurDest(this)
+        if (curDest.isNotEmpty()) db.append("\n● Viagem ativa: " + curDest)
+        tvDest.text = db.toString()
 
         // Totais + histórico por mês
         val sb = StringBuilder()

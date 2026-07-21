@@ -123,6 +123,8 @@ class TrackingService : Service() {
             val moving = location.hasSpeed() && location.speed > MIN_SPEED_MS
             if (d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
                 Storage.addMeters(this, mode, d)
+                val dest = Storage.getCurDest(this)
+                if (dest.isNotEmpty()) Storage.addDestMeters(this, dest, d)
                 updateNotification()
             }
         }
