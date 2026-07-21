@@ -48,6 +48,35 @@
             android:textColor="#0E0E0E" android:backgroundTint="#E0A030" android:textStyle="bold"
             android:textSize="13sp" android:layout_marginBottom="20dp" />
 
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="DESTINO DESTA VIAGEM" android:textColor="#C9A043" android:textSize="15sp"
+            android:textStyle="bold" android:layout_marginBottom="2dp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Antes de dirigir, escreva o destino e toque em INICIAR VIAGEM. O app conta quantas vezes e quantos km você vai a cada lugar por mês."
+            android:textColor="#AAAAAA" android:textSize="12sp" android:layout_marginBottom="8dp" />
+
+        <EditText android:id="@+id/etDest" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:hint="Destino (ex: Trabalho da Betânia, Igreja)"
+            android:textColorHint="#777777" android:textColor="#FFFFFF"
+            android:inputType="textCapSentences" android:backgroundTint="#C9A043"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="20dp">
+            <Button android:id="@+id/btnPickDest" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="SALVOS"
+                android:textColor="#FFFFFF" android:backgroundTint="#2A2A2A" android:textStyle="bold"
+                android:textSize="11sp" android:layout_marginEnd="6dp" />
+            <Button android:id="@+id/btnStartTrip" android:layout_width="0dp" android:layout_weight="1.4"
+                android:layout_height="wrap_content" android:text="INICIAR VIAGEM"
+                android:textColor="#0E0E0E" android:backgroundTint="#C9A043" android:textStyle="bold"
+                android:textSize="11sp" android:layout_marginEnd="6dp" />
+            <Button android:id="@+id/btnEndTrip" android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:text="ENCERRAR"
+                android:textColor="#FFFFFF" android:backgroundTint="#B03030" android:textStyle="bold"
+                android:textSize="11sp" />
+        </LinearLayout>
+
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="horizontal" android:layout_marginBottom="8dp">
             <Button android:id="@+id/btnPrevMonth" android:layout_width="0dp" android:layout_weight="1"
@@ -63,6 +92,11 @@
             android:layout_height="wrap_content" android:text="MÊS ATUAL" android:textColor="#FFFFFF"
             android:textSize="15sp" android:lineSpacingExtra="4dp" android:padding="14dp"
             android:background="#14261B" android:layout_marginBottom="14dp" />
+
+        <TextView android:id="@+id/tvDest" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="DESTINOS" android:textColor="#FFFFFF"
+            android:textSize="15sp" android:lineSpacingExtra="4dp" android:padding="14dp"
+            android:background="#1C1C1C" android:layout_marginBottom="14dp" />
 
         <TextView android:id="@+id/tvTotals" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:text="TOTAL GERAL" android:textColor="#FFFFFF"
