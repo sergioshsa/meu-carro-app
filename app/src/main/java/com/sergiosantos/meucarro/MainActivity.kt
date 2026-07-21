@@ -35,6 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etCalcLiters: EditText
     private lateinit var etCalcKm: EditText
     private lateinit var tvCalcResult: TextView
+    private lateinit var etSyncCode: EditText
+    private lateinit var tvSyncStatus: TextView
 
     private var pendingAuto = false
     private var selectedYm = Storage.currentYm()
@@ -89,6 +91,9 @@ class MainActivity : AppCompatActivity() {
         etCalcLiters = findViewById(R.id.etCalcLiters)
         etCalcKm = findViewById(R.id.etCalcKm)
         tvCalcResult = findViewById(R.id.tvCalcResult)
+        etSyncCode = findViewById(R.id.etSyncCode)
+        tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        etSyncCode.setText(Storage.getSyncCode(this))
 
         findViewById<Button>(R.id.btnAuto).setOnClickListener { startAuto() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopTracking() }
@@ -101,6 +106,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNextMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, 1); refresh() }
         findViewById<Button>(R.id.btnExport).setOnClickListener { exportLauncher.launch("meucarro_backup.json") }
         findViewById<Button>(R.id.btnImport).setOnClickListener { importLauncher.launch(arrayOf("application/json", "*/*")) }
+        findViewById<Button>(R.id.btnSaveSync).setOnClickListener { saveSyncCode() }
+        findViewById<Button>(R.id.btnPush).setOnClickListener { doPush(true) }
+        findViewById<Button>(R.id.btnPull).setOnClickListener { doPull() }
 
         askNotificationPermission()
         handleIntent(intent)
@@ -115,6 +123,46 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val code = Storage.getSyncCode(this)
+        if (code.isNotEmpty()) CloudSync.push(this, code, null)
+    }
+
+    private fun saveSyncCode() {
+        val code = CloudSync.sanitizeCode(etSyncCode.text.toString())
+        if (code.isEmpty()) {
+            Toast.makeText(this, "Digite um código com letras/números.", Toast.LENGTH_LONG).show(); return
+        }
+        Storage.setSyncCode(this, code)
+        etSyncCode.setText(code)
+        Toast.makeText(this, "Código salvo: $code", Toast.LENGTH_SHORT).show()
+        refresh()
+    }
+
+    private fun doPush(showToast: Boolean) {
+        val code = Storage.getSyncCode(this)
+        if (code.isEmpty()) { Toast.makeText(this, "Salve um código de sincronização primeiro.", Toast.LENGTH_LONG).show(); return }
+        if (showToast) Toast.makeText(this, "Enviando para a nuvem...", Toast.LENGTH_SHORT).show()
+        CloudSync.push(this, code, object : CloudSync.Callback {
+            override fun onResult(success: Boolean, message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun doPull() {
+        val code = Storage.getSyncCode(this)
+        if (code.isEmpty()) { Toast.makeText(this, "Salve um código de sincronização primeiro.", Toast.LENGTH_LONG).show(); return }
+        Toast.makeText(this, "Baixando da nuvem...", Toast.LENGTH_SHORT).show()
+        CloudSync.pull(this, code, object : CloudSync.Callback {
+            override fun onResult(success: Boolean, message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                if (success) refresh()
+            }
+        })
     }
 
     /** Atalhos de voz (opcionais) ainda funcionam para fixar um modo manual. */
@@ -359,6 +407,12 @@ class MainActivity : AppCompatActivity() {
             Storage.MODE_PESSOAL -> "● REGISTRANDO: PESSOAL (manual)"
             else -> "○ Parado (toque em Ativar modo automático)"
         }
+
+        val sc = Storage.getSyncCode(this)
+        tvSyncStatus.text = if (sc.isEmpty())
+            "Nuvem: sem código. Crie um código, toque em Salvar e use o mesmo em outro celular."
+        else
+            "Nuvem ativa (código: $sc). Envio automático ao sair do app. Use \"Baixar\" para restaurar."
 
         tvUsageWarn.text = if (!hasUsageAccess())
             "⚠ Acesso de uso não concedido: sem ele, tudo conta como Pessoal. Toque em \"Conceder acesso de uso\"."

@@ -20,6 +20,7 @@ object Storage {
     private const val KEY_FILLS = "fills"
     private const val KEY_MONTHS = "months_index"
     private const val KEY_AUTO = "auto_enabled"
+    private const val KEY_SYNC_CODE = "sync_code"
 
     const val MODE_NONE = ""
     const val MODE_PESSOAL = "PESSOAL"
@@ -82,6 +83,9 @@ object Storage {
     fun getMode(c: Context): String = p(c).getString(KEY_MODE, MODE_NONE) ?: MODE_NONE
     fun setMode(c: Context, mode: String) { p(c).edit().putString(KEY_MODE, mode).apply() }
 
+    fun getSyncCode(c: Context): String = p(c).getString(KEY_SYNC_CODE, "") ?: ""
+    fun setSyncCode(c: Context, v: String) { p(c).edit().putString(KEY_SYNC_CODE, v).apply() }
+
     fun isAutoEnabled(c: Context): Boolean = p(c).getBoolean(KEY_AUTO, false)
     fun setAutoEnabled(c: Context, v: Boolean) { p(c).edit().putBoolean(KEY_AUTO, v).apply() }
 
@@ -114,6 +118,48 @@ object Storage {
         o.put("meters_uber_at_fill", getMetersUber(c))
         arr.put(o)
         p(c).edit().putString(KEY_FILLS, arr.toString()).apply()
+    }
+
+    // ---- Backup (exportar / importar) ----
+
+    fun exportJson(c: Context): String {
+        val o = JSONObject()
+        o.put("v", 1)
+        o.put("exported_at", System.currentTimeMillis())
+        o.put("meters_pessoal", getMetersPessoal(c))
+        o.put("meters_uber", getMetersUber(c))
+        val marr = JSONArray()
+        val mdata = JSONObject()
+        for (ym in getMonths(c)) {
+            marr.put(ym)
+            mdata.put(ym + "|P", getMonthMeters(c, MODE_PESSOAL, ym))
+            mdata.put(ym + "|U", getMonthMeters(c, MODE_UBER, ym))
+        }
+        o.put("months", marr)
+        o.put("months_data", mdata)
+        o.put("fills", getFills(c))
+        return o.toString(2)
+    }
+
+    fun importJson(c: Context, text: String): Boolean {
+        return try {
+            val o = JSONObject(text)
+            val e = p(c).edit()
+            e.putLong(KEY_METERS_PESSOAL, o.optDouble("meters_pessoal", 0.0).toRawBits())
+            e.putLong(KEY_METERS_UBER, o.optDouble("meters_uber", 0.0).toRawBits())
+            val marr = o.optJSONArray("months") ?: JSONArray()
+            e.putString(KEY_MONTHS, marr.toString())
+            val mdata = o.optJSONObject("months_data") ?: JSONObject()
+            for (i in 0 until marr.length()) {
+                val y = marr.getString(i)
+                e.putLong(monthKey(MODE_PESSOAL, y), mdata.optDouble(y + "|P", 0.0).toRawBits())
+                e.putLong(monthKey(MODE_UBER, y), mdata.optDouble(y + "|U", 0.0).toRawBits())
+            }
+            val fills = o.optJSONArray("fills")
+            if (fills != null) e.putString(KEY_FILLS, fills.toString())
+            e.apply()
+            true
+        } catch (ex: Exception) { false }
     }
 
     fun lastFill(c: Context): JSONObject? {
