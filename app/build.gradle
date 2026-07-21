@@ -15,22 +15,9 @@ android {
         versionName "1.2"
     }
 
-    signingConfigs {
-        appfixed {
-            storeFile file('meucarro.keystore')
-            storePassword System.getenv("KS_PASS")
-            keyAlias "meucarro"
-            keyPassword System.getenv("KS_PASS")
-        }
-    }
-
     buildTypes {
-        debug {
-            signingConfig signingConfigs.appfixed
-        }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.appfixed
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
