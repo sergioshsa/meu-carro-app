@@ -11,13 +11,26 @@ android {
         applicationId "com.sergiosantos.meucarro"
         minSdk 24
         targetSdk 34
-        versionCode 3
-        versionName "1.2"
+        versionCode 4
+        versionName "1.3"
+    }
+
+    signingConfigs {
+        appfixed {
+            storeFile file('meucarro.keystore')
+            storePassword System.getenv("KS_PASS")
+            keyAlias "meucarro"
+            keyPassword System.getenv("KS_PASS")
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.appfixed
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.appfixed
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
