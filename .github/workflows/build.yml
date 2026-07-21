@@ -3,7 +3,7 @@ name: Build APK
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:   # permite rodar manualmente pelo botao "Run workflow"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -27,6 +27,13 @@ jobs:
       - name: Instalar componentes do SDK
         run: |
           yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+
+      - name: Restaurar keystore (assinatura fixa)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > app/meucarro.keystore
+          echo "Keystore restaurado ($(wc -c < app/meucarro.keystore) bytes)"
 
       - name: Instalar Gradle e compilar o APK
         uses: gradle/actions/setup-gradle@v4
