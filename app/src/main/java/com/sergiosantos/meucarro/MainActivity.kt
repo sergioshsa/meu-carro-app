@@ -62,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedYm = Storage.currentYm()
     private val REQ_LOCATION = 100
     private val REQ_NOTIF = 101
+    private val REQ_BG = 102
 
     private val monthNames = arrayOf(
         "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
@@ -214,7 +215,31 @@ class MainActivity : AppCompatActivity() {
             .setAction(TrackingService.ACTION_START)
             .putExtra(TrackingService.EXTRA_MODE, Storage.MODE_AUTO)
         ContextCompat.startForegroundService(this, i)
+        requestBackgroundIfNeeded()
         btnModeCircle.postDelayed({ refresh() }, 500)
+    }
+
+    private fun hasBackgroundLocation(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    /** Pede "Permitir o tempo todo" para registrar km com a tela desligada / app fechado. */
+    private fun requestBackgroundIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !hasBackgroundLocation()) {
+            AlertDialog.Builder(this)
+                .setTitle("Localização o tempo todo")
+                .setMessage("Para registrar os km mesmo com a tela desligada ou o app fechado, escolha \"Permitir o tempo todo\" na próxima tela de localização.")
+                .setPositiveButton("Ajustar agora") { _, _ ->
+                    try {
+                        ActivityCompat.requestPermissions(this,
+                            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQ_BG)
+                    } catch (e: Exception) {
+                        try { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName"))) } catch (e2: Exception) {}
+                    }
+                }
+                .setNegativeButton("Agora não", null).show()
+        }
     }
 
     private fun startFixed(mode: String) {

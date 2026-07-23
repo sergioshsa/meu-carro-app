@@ -50,8 +50,8 @@ class TrackingService : Service() {
 
         const val UPDATE_MS = 2000L
         const val MIN_UPDATE_MS = 1000L
-        const val MAX_ACCURACY_M = 30f
-        const val MAX_JUMP_M = 300.0
+        const val MAX_ACCURACY_M = 60f        // filtro de GPS mais tolerante (cidade/celular)
+        const val MAX_JUMP_M = 600.0          // aceita saltos maiores (rodovia/atraso de fix)
         const val MIN_SPEED_MS = 0.6f
         const val MIN_DIST_IF_NO_SPEED = 8.0
 
@@ -125,7 +125,10 @@ class TrackingService : Service() {
     }
 
     private fun handleLocation(location: Location) {
-        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) return
+        // Só descarta fix ruim se NÃO estiver claramente em movimento.
+        // Antes, o filtro de 30 m jogava fora quase tudo na cidade e nada era somado.
+        val movingFix = location.hasSpeed() && location.speed > MIN_SPEED_MS
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M && !movingFix) return
         val mode = if (autoMode) detectMode() else fixedMode
         if (mode != lastEffectiveMode) {
             lastEffectiveMode = mode
