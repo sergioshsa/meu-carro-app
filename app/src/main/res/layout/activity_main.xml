@@ -28,9 +28,10 @@
                     android:focusable="true" android:backgroundTint="#C9A043"
                     android:layout_marginBottom="10dp" />
 
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="(toque no círculo para alternar Uber/Pessoal)"
-                    android:textColor="#888888" android:textSize="11sp" android:layout_marginBottom="16dp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Toque no círculo para trocar:  PARADO → UBER → PESSOAL → PARADO.&#10;Em casa, sem dirigir, deixe em PARADO. Os km só contam com o carro em movimento."
+                    android:gravity="center" android:textColor="#999999" android:textSize="11sp"
+                    android:lineSpacingExtra="2dp" android:layout_marginBottom="16dp" />
 
                 <TextView android:id="@+id/tvStatus" android:layout_width="match_parent"
                     android:layout_height="wrap_content" android:text="○ Parado" android:textColor="#FFFFFF"
