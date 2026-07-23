@@ -1,6 +1,8 @@
 package com.sergiosantos.meucarro
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.app.AppOpsManager
 import android.app.usage.UsageStatsManager
 import android.content.Context
@@ -13,6 +15,8 @@ import android.os.Process
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -31,6 +35,11 @@ import java.util.Locale
 class MainActivity : AppCompatActivity() {
 
     private lateinit var btnModeCircle: TextView
+    private lateinit var ringGlow: View
+    private var pulseAnim: ObjectAnimator? = null
+    private var ringRotate: ObjectAnimator? = null
+    private var ringPulse: ObjectAnimator? = null
+    private var currentOrbKind = -1
     private lateinit var tvStatus: TextView
     private lateinit var tvUsageWarn: TextView
     private lateinit var tvMonth: TextView
@@ -99,6 +108,7 @@ class MainActivity : AppCompatActivity() {
         pageNuvem = findViewById(R.id.pageNuvem)
 
         btnModeCircle = findViewById(R.id.btnModeCircle)
+        ringGlow = findViewById(R.id.ringGlow)
         tvStatus = findViewById(R.id.tvStatus)
         tvUsageWarn = findViewById(R.id.tvUsageWarn)
         tvMonth = findViewById(R.id.tvMonth)
@@ -178,14 +188,13 @@ class MainActivity : AppCompatActivity() {
         if (mode != null) startFixed(mode)
     }
 
-    /** Ciclo do botão redondo: PARADO → UBER → PESSOAL → PARADO.
-     *  Se o automático estiver ligado, o primeiro toque para tudo (volta pra PARADO). */
+    /** Ciclo do botão redondo: PARADO → AUTO → UBER → PESSOAL → PARADO. */
     private fun toggleMode() {
-        if (Storage.isAutoEnabled(this)) { stopTracking(); return }
-        when (Storage.getMode(this)) {
-            Storage.MODE_UBER -> startFixed(Storage.MODE_PESSOAL)
-            Storage.MODE_PESSOAL -> stopTracking()   // → PARADO
-            else -> startFixed(Storage.MODE_UBER)     // PARADO → UBER
+        when {
+            Storage.isAutoEnabled(this) -> startFixed(Storage.MODE_UBER)   // AUTO → UBER
+            Storage.getMode(this) == Storage.MODE_UBER -> startFixed(Storage.MODE_PESSOAL)
+            Storage.getMode(this) == Storage.MODE_PESSOAL -> stopTracking() // → PARADO
+            else -> startAuto()   // PARADO → AUTO
         }
     }
 
@@ -202,7 +211,6 @@ class MainActivity : AppCompatActivity() {
             .setAction(TrackingService.ACTION_START)
             .putExtra(TrackingService.EXTRA_MODE, Storage.MODE_AUTO)
         ContextCompat.startForegroundService(this, i)
-        Toast.makeText(this, "Modo automático ativado", Toast.LENGTH_SHORT).show()
         btnModeCircle.postDelayed({ refresh() }, 500)
     }
 
@@ -478,6 +486,84 @@ class MainActivity : AppCompatActivity() {
         return try { val p = ym.split("-"); "${monthNames[p[1].toInt() - 1]}/${p[0]}" } catch (e: Exception) { ym }
     }
 
+    // ---------- Visual premium do orbe ----------
+    private fun ensurePulse(): ObjectAnimator {
+        if (pulseAnim == null) {
+            val sx = PropertyValuesHolder.ofFloat("scaleX", 1f, 1.045f)
+            val sy = PropertyValuesHolder.ofFloat("scaleY", 1f, 1.045f)
+            pulseAnim = ObjectAnimator.ofPropertyValuesHolder(btnModeCircle, sx, sy).apply {
+                duration = 1150
+                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ObjectAnimator.REVERSE
+                interpolator = AccelerateDecelerateInterpolator()
+            }
+        }
+        return pulseAnim!!
+    }
+
+    private fun ensureRingRotate(): ObjectAnimator {
+        if (ringRotate == null) {
+            ringRotate = ObjectAnimator.ofFloat(ringGlow, "rotation", 0f, 360f).apply {
+                duration = 3400
+                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ObjectAnimator.RESTART
+                interpolator = LinearInterpolator()
+            }
+        }
+        return ringRotate!!
+    }
+
+    private fun ensureRingPulse(): ObjectAnimator {
+        if (ringPulse == null) {
+            ringPulse = ObjectAnimator.ofFloat(ringGlow, "alpha", 0.28f, 0.82f).apply {
+                duration = 1350
+                repeatCount = ObjectAnimator.INFINITE
+                repeatMode = ObjectAnimator.REVERSE
+                interpolator = AccelerateDecelerateInterpolator()
+            }
+        }
+        return ringPulse!!
+    }
+
+    /** kind: 0 PARADO · 1 AUTO · 2 UBER · 3 PESSOAL. Só reaplica se mudou de estado. */
+    private fun applyOrbVisual(kind: Int) {
+        if (kind == currentOrbKind) return
+        currentOrbKind = kind
+        ringRotate?.cancel()
+        ringPulse?.cancel()
+        when (kind) {
+            0 -> {
+                btnModeCircle.setBackgroundResource(R.drawable.orb_parado)
+                pulseAnim?.cancel(); btnModeCircle.scaleX = 1f; btnModeCircle.scaleY = 1f
+                ringGlow.rotation = 0f; ringGlow.alpha = 0f
+            }
+            1 -> {
+                btnModeCircle.setBackgroundResource(R.drawable.orb_auto)
+                ringGlow.setBackgroundResource(R.drawable.ring_auto)
+                ringGlow.backgroundTintList = null
+                ringGlow.alpha = 0.92f
+                ensureRingRotate().start()
+                ensurePulse().start()
+            }
+            2 -> {
+                btnModeCircle.setBackgroundResource(R.drawable.orb_uber)
+                ringGlow.setBackgroundResource(R.drawable.ring_glow)
+                ringGlow.backgroundTintList = ColorStateList.valueOf(0xFF84E6A6.toInt())
+                ringGlow.rotation = 0f
+                ensureRingPulse().start()
+                ensurePulse().start()
+            }
+            3 -> {
+                btnModeCircle.setBackgroundResource(R.drawable.orb_pessoal)
+                ringGlow.setBackgroundResource(R.drawable.ring_glow)
+                ringGlow.backgroundTintList = ColorStateList.valueOf(0xFFF6E6AC.toInt())
+                ringGlow.rotation = 0f
+                ensureRingPulse().start()
+                ensurePulse().start()
+            }
+        }
+    }
+
     private fun refresh() {
         val loc = Locale("pt", "BR")
         val kmP = Storage.getMetersPessoal(this) / 1000.0
@@ -485,34 +571,33 @@ class MainActivity : AppCompatActivity() {
         val mode = Storage.getMode(this)
         val auto = Storage.isAutoEnabled(this)
 
-        // Estado do botão redondo: PARADO / AUTO / UBER / PESSOAL
-        val green = 0xFF1A6B2A.toInt(); val gold = 0xFFC9A043.toInt(); val grey = 0xFF555555.toInt()
+        // Estado do botão redondo premium: PARADO / AUTO / UBER / PESSOAL
         when {
             auto -> {
                 val u = recentUber()
                 btnModeCircle.text = "AUTO\n" + (if (u) "UBER" else "PESSOAL")
-                btnModeCircle.setTextColor(if (u) 0xFFFFFFFF.toInt() else 0xFF0E0E0E.toInt())
-                btnModeCircle.backgroundTintList = ColorStateList.valueOf(if (u) green else gold)
-                tvStatus.text = "● AUTOMÁTICO ligado — detectando sozinho: " +
-                    (if (u) "UBER" else "PESSOAL") + "\nVocê não precisa tocar no botão. Toque só se quiser desligar (PARAR)."
+                btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
+                applyOrbVisual(1)
+                tvStatus.text = "● AUTOMÁTICO — decidindo sozinho: " + (if (u) "UBER" else "PESSOAL") +
+                    "\nConta ao dirigir. Toque no círculo para trocar (vai a UBER)."
             }
             mode == Storage.MODE_UBER -> {
                 btnModeCircle.text = "UBER"
                 btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
-                btnModeCircle.backgroundTintList = ColorStateList.valueOf(green)
-                tvStatus.text = "● REGISTRANDO: UBER (manual)\nToque no botão para ir a PESSOAL."
+                applyOrbVisual(2)
+                tvStatus.text = "● REGISTRANDO: UBER (manual)\nToque no círculo para ir a PESSOAL."
             }
             mode == Storage.MODE_PESSOAL -> {
                 btnModeCircle.text = "PESSOAL"
-                btnModeCircle.setTextColor(0xFF0E0E0E.toInt())
-                btnModeCircle.backgroundTintList = ColorStateList.valueOf(gold)
-                tvStatus.text = "● REGISTRANDO: PESSOAL (manual)\nToque no botão para PARAR."
+                btnModeCircle.setTextColor(0xFF2A1E05.toInt())
+                applyOrbVisual(3)
+                tvStatus.text = "● REGISTRANDO: PESSOAL (manual)\nToque no círculo para PARAR."
             }
             else -> {
                 btnModeCircle.text = "PARADO"
                 btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
-                btnModeCircle.backgroundTintList = ColorStateList.valueOf(grey)
-                tvStatus.text = "○ PARADO — nada está sendo registrado agora.\nEm casa/sem dirigir, pode deixar assim. Toque no botão para começar."
+                applyOrbVisual(0)
+                tvStatus.text = "○ PARADO — nada é registrado agora.\nToque no círculo para ligar o AUTO (conta ao dirigir)."
             }
         }
 
