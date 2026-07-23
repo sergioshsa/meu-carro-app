@@ -304,4 +304,13 @@ object Storage {
         if (arr.length() == 0) return null
         return arr.getJSONObject(arr.length() - 1)
     }
+
+    /** Remove um abastecimento pelo índice (0 = mais antigo). */
+    fun removeFill(c: Context, index: Int) {
+        val arr = getFills(c)
+        if (index < 0 || index >= arr.length()) return
+        val novo = JSONArray()
+        for (i in 0 until arr.length()) if (i != index) novo.put(arr.getJSONObject(i))
+        p(c).edit().putString(KEY_FILLS, novo.toString()).apply()
+    }
 }

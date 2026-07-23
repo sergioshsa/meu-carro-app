@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvDest: TextView
     private lateinit var tvTotals: TextView
     private lateinit var tvTank: TextView
+    private lateinit var tvFillHistory: TextView
     private lateinit var etCalcLiters: EditText
     private lateinit var etCalcKm: EditText
     private lateinit var tvCalcResult: TextView
@@ -104,6 +105,7 @@ class MainActivity : AppCompatActivity() {
         tvDest = findViewById(R.id.tvDest)
         tvTotals = findViewById(R.id.tvTotals)
         tvTank = findViewById(R.id.tvTank)
+        tvFillHistory = findViewById(R.id.tvFillHistory)
         etCalcLiters = findViewById(R.id.etCalcLiters)
         etCalcKm = findViewById(R.id.etCalcKm)
         tvCalcResult = findViewById(R.id.tvCalcResult)
@@ -132,6 +134,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnRenameDest).setOnClickListener { renameDestDialog() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
         findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
+        findViewById<Button>(R.id.btnManageFills).setOnClickListener { manageFillsDialog() }
         findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
         findViewById<Button>(R.id.btnSaveSync).setOnClickListener { saveSyncCode() }
         findViewById<Button>(R.id.btnPush).setOnClickListener { doPush(true) }
@@ -333,6 +336,67 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancelar", null).show()
     }
 
+    /** Monta uma linha-resumo de cada abastecimento (do mais recente ao mais antigo). */
+    private fun fillLabels(): List<String> {
+        val loc = Locale("pt", "BR")
+        val arr = Storage.getFills(this)
+        val curP = Storage.getMetersPessoal(this)
+        val curU = Storage.getMetersUber(this)
+        val sdf = SimpleDateFormat("dd/MM/yyyy", loc)
+        val out = ArrayList<String>()
+        for (i in arr.length() - 1 downTo 0) {
+            val o = arr.getJSONObject(i)
+            val ts = o.optLong("timestamp", 0L)
+            val liters = o.optDouble("liters", 0.0)
+            val price = o.optDouble("price", 0.0)
+            val p0 = o.optDouble("meters_pessoal_at_fill", 0.0)
+            val u0 = o.optDouble("meters_uber_at_fill", 0.0)
+            // fim do tanque = próximo abastecimento (ou totais atuais, se for o último)
+            val fim = if (i == arr.length() - 1) Pair(curP, curU)
+                      else { val n = arr.getJSONObject(i + 1); Pair(n.optDouble("meters_pessoal_at_fill", 0.0), n.optDouble("meters_uber_at_fill", 0.0)) }
+            val kmP = ((fim.first - p0) / 1000.0).coerceAtLeast(0.0)
+            val kmU = ((fim.second - u0) / 1000.0).coerceAtLeast(0.0)
+            val kmT = kmP + kmU
+            val atual = if (i == arr.length() - 1) "  ← tanque atual" else ""
+            val b = StringBuilder()
+            b.append("▸ ").append(sdf.format(Date(ts))).append(atual).append("\n")
+            b.append(String.format(loc, "   %.0f L", liters))
+            if (price > 0) b.append(String.format(loc, " · R$ %.2f", price))
+            b.append("\n")
+            b.append(String.format(loc, "   Rodou: %.1f km (Uber %.1f | Pessoal %.1f)", kmT, kmU, kmP))
+            if (liters > 0 && kmT > 0) b.append(String.format(loc, "\n   Consumo: %.2f km/L", kmT / liters))
+            out.add(b.toString())
+        }
+        return out
+    }
+
+    private fun manageFillsDialog() {
+        val arr = Storage.getFills(this)
+        if (arr.length() == 0) { Toast.makeText(this, "Nenhum abastecimento registrado.", Toast.LENGTH_SHORT).show(); return }
+        val loc = Locale("pt", "BR")
+        val sdf = SimpleDateFormat("dd/MM/yyyy", loc)
+        // itens (mais recente primeiro) com o índice real guardado em paralelo
+        val labels = ArrayList<String>()
+        val idxs = ArrayList<Int>()
+        for (i in arr.length() - 1 downTo 0) {
+            val o = arr.getJSONObject(i)
+            labels.add(sdf.format(Date(o.optLong("timestamp", 0L))) +
+                String.format(loc, " — %.0f L · R$ %.2f", o.optDouble("liters", 0.0), o.optDouble("price", 0.0)))
+            idxs.add(i)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Apagar qual registro?")
+            .setItems(labels.toTypedArray()) { _, which ->
+                val realIdx = idxs[which]
+                AlertDialog.Builder(this)
+                    .setTitle("Apagar este abastecimento?")
+                    .setMessage(labels[which])
+                    .setPositiveButton("Apagar") { _, _ -> Storage.removeFill(this, realIdx); refresh() }
+                    .setNegativeButton("Cancelar", null).show()
+            }
+            .setNegativeButton("Fechar", null).show()
+    }
+
     private fun calcTank() {
         val liters = etCalcLiters.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
         val kmTotal = etCalcKm.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
@@ -498,5 +562,10 @@ class MainActivity : AppCompatActivity() {
             }
             tvTank.text = t.toString()
         }
+
+        val labels = fillLabels()
+        tvFillHistory.text = if (labels.isEmpty())
+            "Nenhum abastecimento salvo ainda.\nCada vez que você registra um, ele fica guardado aqui — nenhum é apagado sozinho."
+        else labels.joinToString("\n\n")
     }
 }
