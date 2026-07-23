@@ -80,6 +80,7 @@ class TrackingService : Service() {
                     Storage.setAutoEnabled(this, true)
                     lastEffectiveMode = detectMode()
                 } else {
+                    Storage.setAutoEnabled(this, false)
                     fixedMode = requested
                     lastEffectiveMode = requested
                 }

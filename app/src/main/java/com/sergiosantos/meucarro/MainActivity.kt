@@ -178,10 +178,15 @@ class MainActivity : AppCompatActivity() {
         if (mode != null) startFixed(mode)
     }
 
+    /** Ciclo do botão redondo: PARADO → UBER → PESSOAL → PARADO.
+     *  Se o automático estiver ligado, o primeiro toque para tudo (volta pra PARADO). */
     private fun toggleMode() {
-        val current = Storage.getMode(this)
-        val newMode = if (current == Storage.MODE_UBER) Storage.MODE_PESSOAL else Storage.MODE_UBER
-        startFixed(newMode)
+        if (Storage.isAutoEnabled(this)) { stopTracking(); return }
+        when (Storage.getMode(this)) {
+            Storage.MODE_UBER -> startFixed(Storage.MODE_PESSOAL)
+            Storage.MODE_PESSOAL -> stopTracking()   // → PARADO
+            else -> startFixed(Storage.MODE_UBER)     // PARADO → UBER
+        }
     }
 
     private fun startAuto() {
@@ -203,18 +208,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun startFixed(mode: String) {
         if (!hasLocation()) { requestLocation(); return }
+        Storage.setAutoEnabled(this, false)
         val i = Intent(this, TrackingService::class.java)
             .setAction(TrackingService.ACTION_START).putExtra(TrackingService.EXTRA_MODE, mode)
         ContextCompat.startForegroundService(this, i)
-        val label = if (mode == Storage.MODE_UBER) "UBER" else "PESSOAL"
-        Toast.makeText(this, "Modo $label (manual)", Toast.LENGTH_SHORT).show()
         btnModeCircle.postDelayed({ refresh() }, 400)
     }
 
     private fun stopTracking() {
         startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
         Storage.setMode(this, Storage.MODE_NONE)
-        Toast.makeText(this, "Registro parado", Toast.LENGTH_SHORT).show()
+        Storage.setAutoEnabled(this, false)
         btnModeCircle.postDelayed({ refresh() }, 300)
     }
 
@@ -481,23 +485,35 @@ class MainActivity : AppCompatActivity() {
         val mode = Storage.getMode(this)
         val auto = Storage.isAutoEnabled(this)
 
-        val displayUber = if (auto) recentUber() else (mode == Storage.MODE_UBER)
-        if (displayUber) {
-            btnModeCircle.text = "UBER"
-            btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
-            btnModeCircle.backgroundTintList = ColorStateList.valueOf(0xFF1A6B2A.toInt())
-        } else {
-            btnModeCircle.text = "PESSOAL"
-            btnModeCircle.setTextColor(0xFF0E0E0E.toInt())
-            btnModeCircle.backgroundTintList = ColorStateList.valueOf(0xFFC9A043.toInt())
-        }
-
-        tvStatus.text = if (auto) {
-            "● AUTOMÁTICO ligado — detectando: " + (if (displayUber) "UBER" else "PESSOAL")
-        } else when (mode) {
-            Storage.MODE_UBER -> "● REGISTRANDO: UBER (manual)"
-            Storage.MODE_PESSOAL -> "● REGISTRANDO: PESSOAL (manual)"
-            else -> "○ Parado — toque no círculo ou em Ativar automático"
+        // Estado do botão redondo: PARADO / AUTO / UBER / PESSOAL
+        val green = 0xFF1A6B2A.toInt(); val gold = 0xFFC9A043.toInt(); val grey = 0xFF555555.toInt()
+        when {
+            auto -> {
+                val u = recentUber()
+                btnModeCircle.text = "AUTO\n" + (if (u) "UBER" else "PESSOAL")
+                btnModeCircle.setTextColor(if (u) 0xFFFFFFFF.toInt() else 0xFF0E0E0E.toInt())
+                btnModeCircle.backgroundTintList = ColorStateList.valueOf(if (u) green else gold)
+                tvStatus.text = "● AUTOMÁTICO ligado — detectando sozinho: " +
+                    (if (u) "UBER" else "PESSOAL") + "\nVocê não precisa tocar no botão. Toque só se quiser desligar (PARAR)."
+            }
+            mode == Storage.MODE_UBER -> {
+                btnModeCircle.text = "UBER"
+                btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
+                btnModeCircle.backgroundTintList = ColorStateList.valueOf(green)
+                tvStatus.text = "● REGISTRANDO: UBER (manual)\nToque no botão para ir a PESSOAL."
+            }
+            mode == Storage.MODE_PESSOAL -> {
+                btnModeCircle.text = "PESSOAL"
+                btnModeCircle.setTextColor(0xFF0E0E0E.toInt())
+                btnModeCircle.backgroundTintList = ColorStateList.valueOf(gold)
+                tvStatus.text = "● REGISTRANDO: PESSOAL (manual)\nToque no botão para PARAR."
+            }
+            else -> {
+                btnModeCircle.text = "PARADO"
+                btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
+                btnModeCircle.backgroundTintList = ColorStateList.valueOf(grey)
+                tvStatus.text = "○ PARADO — nada está sendo registrado agora.\nEm casa/sem dirigir, pode deixar assim. Toque no botão para começar."
+            }
         }
 
         tvUsageWarn.text = if (!hasUsageAccess())
