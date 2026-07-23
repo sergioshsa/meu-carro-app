@@ -21,15 +21,24 @@
                     android:text="MEU CARRO" android:textColor="#C9A043" android:textSize="24sp"
                     android:textStyle="bold" android:layout_marginBottom="16dp" />
 
-                <TextView android:id="@+id/btnModeCircle" android:layout_width="200dp"
-                    android:layout_height="200dp" android:background="@drawable/circle_mode"
-                    android:gravity="center" android:text="PESSOAL" android:textColor="#0E0E0E"
-                    android:textSize="26sp" android:textStyle="bold" android:clickable="true"
-                    android:focusable="true" android:backgroundTint="#C9A043"
-                    android:layout_marginBottom="10dp" />
+                <FrameLayout android:layout_width="260dp" android:layout_height="260dp"
+                    android:layout_marginBottom="6dp">
+
+                    <View android:id="@+id/ringGlow" android:layout_width="252dp"
+                        android:layout_height="252dp" android:layout_gravity="center"
+                        android:background="@drawable/ring_glow" android:alpha="0" />
+
+                    <TextView android:id="@+id/btnModeCircle" android:layout_width="200dp"
+                        android:layout_height="200dp" android:layout_gravity="center"
+                        android:background="@drawable/orb_parado" android:gravity="center"
+                        android:text="PARADO" android:textColor="#FFFFFF" android:textSize="26sp"
+                        android:textStyle="bold" android:letterSpacing="0.06"
+                        android:clickable="true" android:focusable="true"
+                        android:elevation="10dp" />
+                </FrameLayout>
 
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Toque no círculo para trocar:  PARADO → UBER → PESSOAL → PARADO.&#10;Em casa, sem dirigir, deixe em PARADO. Os km só contam com o carro em movimento."
+                    android:text="Toque no círculo para trocar:  PARADO → AUTO → UBER → PESSOAL.&#10;AUTO decide sozinho e conta ao dirigir. Em casa, deixe em PARADO."
                     android:gravity="center" android:textColor="#999999" android:textSize="11sp"
                     android:lineSpacingExtra="2dp" android:layout_marginBottom="16dp" />
 
