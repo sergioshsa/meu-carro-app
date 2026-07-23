@@ -89,6 +89,25 @@ object Storage {
     fun getSyncCode(c: Context): String = p(c).getString(KEY_SYNC_CODE, "") ?: ""
     fun setSyncCode(c: Context, v: String) { p(c).edit().putString(KEY_SYNC_CODE, v).apply() }
 
+    /** Garante que sempre exista um código (gera um automático na 1ª vez). */
+    fun ensureSyncCode(c: Context): String {
+        var s = getSyncCode(c)
+        if (s.isEmpty()) {
+            val chars = "abcdefghijkmnpqrstuvwxyz23456789"
+            val r = java.util.Random()
+            val sb = StringBuilder("mc-")
+            repeat(6) { sb.append(chars[r.nextInt(chars.length)]) }
+            s = sb.toString()
+            setSyncCode(c, s)
+        }
+        return s
+    }
+
+    /** Verdadeiro quando não há nada salvo localmente (ex.: logo após reinstalar). */
+    fun isLocalEmpty(c: Context): Boolean =
+        getMonths(c).isEmpty() && getFills(c).length() == 0 &&
+        getMetersPessoal(c) == 0.0 && getMetersUber(c) == 0.0
+
     fun isAutoEnabled(c: Context): Boolean = p(c).getBoolean(KEY_AUTO, false)
     fun setAutoEnabled(c: Context, v: Boolean) { p(c).edit().putBoolean(KEY_AUTO, v).apply() }
 

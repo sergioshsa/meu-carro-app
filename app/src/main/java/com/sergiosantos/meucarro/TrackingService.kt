@@ -39,6 +39,7 @@ class TrackingService : Service() {
     private var tripMeters: Double = 0.0
     private var stationarySince: Long = 0L
     private var arrivalRegistered: Boolean = true
+    private var lastCloudPush: Long = 0L
 
     companion object {
         const val ACTION_START = "com.sergiosantos.meucarro.START"
@@ -140,6 +141,12 @@ class TrackingService : Service() {
                 tripMeters += d
                 updateNotification()
                 moved = true
+                val nowMs = System.currentTimeMillis()
+                if (nowMs - lastCloudPush > 90_000L) {
+                    lastCloudPush = nowMs
+                    val code = Storage.getSyncCode(this)
+                    if (code.isNotEmpty()) CloudSync.push(this, code, null)
+                }
             }
         }
         lastLocation = location
@@ -174,6 +181,8 @@ class TrackingService : Service() {
                 }
                 Storage.incDestTrip(ctx, name)
                 if (meters > 0) Storage.addDestMeters(ctx, name, meters)
+                val code = Storage.getSyncCode(ctx)
+                if (code.isNotEmpty()) CloudSync.push(ctx, code, null)
             } catch (e: Exception) { /* ignora */ }
         }.start()
     }

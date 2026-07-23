@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
                 if (Storage.importJson(this, text)) {
+                    autoCloud()
                     Toast.makeText(this, "Backup restaurado", Toast.LENGTH_SHORT).show(); refresh()
                 } else {
                     Toast.makeText(this, "Arquivo de backup inválido", Toast.LENGTH_LONG).show()
@@ -121,7 +122,9 @@ class MainActivity : AppCompatActivity() {
         tvCalcResult = findViewById(R.id.tvCalcResult)
         etSyncCode = findViewById(R.id.etSyncCode)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        Storage.ensureSyncCode(this)
         etSyncCode.setText(Storage.getSyncCode(this))
+        maybeAutoRestore()
 
         val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
         nav.setOnItemSelectedListener { item ->
@@ -227,6 +230,7 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
         Storage.setMode(this, Storage.MODE_NONE)
         Storage.setAutoEnabled(this, false)
+        autoCloud()
         btnModeCircle.postDelayed({ refresh() }, 300)
     }
 
@@ -322,7 +326,7 @@ class MainActivity : AppCompatActivity() {
                     .setView(et)
                     .setPositiveButton("Salvar") { _, _ ->
                         val nn = et.text.toString().trim()
-                        if (nn.isNotEmpty()) { Storage.renameDest(this, old, nn); refresh() }
+                        if (nn.isNotEmpty()) { Storage.renameDest(this, old, nn); autoCloud(); refresh() }
                     }
                     .setNegativeButton("Cancelar", null).show()
             }
@@ -343,6 +347,7 @@ class MainActivity : AppCompatActivity() {
                 val liters = etLiters.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
                 val price = etPrice.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
                 Storage.addFill(ctx, liters, price)
+                autoCloud()
                 Toast.makeText(ctx, "Tanque registrado.", Toast.LENGTH_SHORT).show(); refresh()
             }
             .setNegativeButton("Cancelar", null).show()
@@ -403,7 +408,7 @@ class MainActivity : AppCompatActivity() {
                 AlertDialog.Builder(this)
                     .setTitle("Apagar este abastecimento?")
                     .setMessage(labels[which])
-                    .setPositiveButton("Apagar") { _, _ -> Storage.removeFill(this, realIdx); refresh() }
+                    .setPositiveButton("Apagar") { _, _ -> Storage.removeFill(this, realIdx); autoCloud(); refresh() }
                     .setNegativeButton("Cancelar", null).show()
             }
             .setNegativeButton("Fechar", null).show()
@@ -469,6 +474,27 @@ class MainActivity : AppCompatActivity() {
             override fun onResult(success: Boolean, message: String) {
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
                 if (success) refresh()
+            }
+        })
+    }
+
+    // ---------- Sincronização automática ----------
+    /** Envia para a nuvem sozinho, sem toast, sempre que algo muda. */
+    private fun autoCloud() {
+        val code = Storage.getSyncCode(this)
+        if (code.isNotEmpty()) CloudSync.push(this, code, null)
+    }
+
+    /** Se abriu sem nada salvo (ex.: acabou de reinstalar), baixa da nuvem sozinho. */
+    private fun maybeAutoRestore() {
+        val code = Storage.getSyncCode(this)
+        if (code.isEmpty() || !Storage.isLocalEmpty(this)) return
+        CloudSync.pull(this, code, object : CloudSync.Callback {
+            override fun onResult(success: Boolean, message: String) {
+                if (success) {
+                    Toast.makeText(this@MainActivity, "Dados restaurados da nuvem", Toast.LENGTH_SHORT).show()
+                    refresh()
+                }
             }
         })
     }
@@ -638,7 +664,7 @@ class MainActivity : AppCompatActivity() {
         val sc = Storage.getSyncCode(this)
         tvSyncStatus.text = if (sc.isEmpty())
             "Nuvem: sem código. Crie um código e toque em Salvar."
-        else "Nuvem ativa (código: $sc). Envio automático ao sair. Use Baixar para restaurar."
+        else "✓ Sincronização AUTOMÁTICA ligada (código: $sc).\nSalva sozinho a cada dado novo e ao dirigir. Se reinstalar, restaura sozinho.\nGUARDE este código: com ele você recupera tudo em qualquer celular."
 
         val fill = Storage.lastFill(this)
         if (fill == null) {
