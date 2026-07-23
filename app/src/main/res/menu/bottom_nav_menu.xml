@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/nav_modo" android:icon="@drawable/ic_tab_mode" android:title="Modo" />
+    <item android:id="@+id/nav_meses" android:icon="@drawable/ic_tab_month" android:title="Meses" />
+    <item android:id="@+id/nav_tanque" android:icon="@drawable/ic_tab_tank" android:title="Tanque" />
+    <item android:id="@+id/nav_nuvem" android:icon="@drawable/ic_tab_cloud" android:title="Nuvem" />
+</menu>
