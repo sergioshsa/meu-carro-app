@@ -6,30 +6,35 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import android.text.InputType
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var btnModeCircle: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvUsageWarn: TextView
     private lateinit var tvMonth: TextView
+    private lateinit var tvDest: TextView
     private lateinit var tvTotals: TextView
     private lateinit var tvTank: TextView
     private lateinit var etCalcLiters: EditText
@@ -37,11 +42,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCalcResult: TextView
     private lateinit var etSyncCode: EditText
     private lateinit var tvSyncStatus: TextView
-    private lateinit var etDest: EditText
-    private lateinit var tvDest: TextView
+
+    private lateinit var pageModo: View
+    private lateinit var pageMeses: View
+    private lateinit var pageTanque: View
+    private lateinit var pageNuvem: View
 
     private var pendingAuto = false
     private var selectedYm = Storage.currentYm()
+    private val REQ_LOCATION = 100
+    private val REQ_NOTIF = 101
+
+    private val monthNames = arrayOf(
+        "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
+        "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
+    )
 
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -63,8 +78,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
                 if (Storage.importJson(this, text)) {
-                    Toast.makeText(this, "Backup restaurado", Toast.LENGTH_SHORT).show()
-                    refresh()
+                    Toast.makeText(this, "Backup restaurado", Toast.LENGTH_SHORT).show(); refresh()
                 } else {
                     Toast.makeText(this, "Arquivo de backup inválido", Toast.LENGTH_LONG).show()
                 }
@@ -73,21 +87,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-    private val REQ_LOCATION = 100
-    private val REQ_NOTIF = 101
-
-    private val monthNames = arrayOf(
-        "Janeiro","Fevereiro","Março","Abril","Maio","Junho",
-        "Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"
-    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        pageModo = findViewById(R.id.pageModo)
+        pageMeses = findViewById(R.id.pageMeses)
+        pageTanque = findViewById(R.id.pageTanque)
+        pageNuvem = findViewById(R.id.pageNuvem)
+
+        btnModeCircle = findViewById(R.id.btnModeCircle)
         tvStatus = findViewById(R.id.tvStatus)
         tvUsageWarn = findViewById(R.id.tvUsageWarn)
         tvMonth = findViewById(R.id.tvMonth)
+        tvDest = findViewById(R.id.tvDest)
         tvTotals = findViewById(R.id.tvTotals)
         tvTank = findViewById(R.id.tvTank)
         etCalcLiters = findViewById(R.id.etCalcLiters)
@@ -96,41 +110,52 @@ class MainActivity : AppCompatActivity() {
         etSyncCode = findViewById(R.id.etSyncCode)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
         etSyncCode.setText(Storage.getSyncCode(this))
-        etDest = findViewById(R.id.etDest)
-        tvDest = findViewById(R.id.tvDest)
-        findViewById<Button>(R.id.btnStartTrip).setOnClickListener { startTrip() }
-        findViewById<Button>(R.id.btnEndTrip).setOnClickListener { endTrip() }
-        findViewById<Button>(R.id.btnPickDest).setOnClickListener { pickDest() }
 
+        val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
+        nav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_modo -> showPage(pageModo)
+                R.id.nav_meses -> showPage(pageMeses)
+                R.id.nav_tanque -> showPage(pageTanque)
+                R.id.nav_nuvem -> showPage(pageNuvem)
+            }
+            true
+        }
+
+        btnModeCircle.setOnClickListener { toggleMode() }
         findViewById<Button>(R.id.btnAuto).setOnClickListener { startAuto() }
         findViewById<Button>(R.id.btnStop).setOnClickListener { stopTracking() }
         findViewById<Button>(R.id.btnUsage).setOnClickListener { openUsageAccess() }
         findViewById<Button>(R.id.btnTest).setOnClickListener { testDetection() }
-        findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
-        findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
-        findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
         findViewById<Button>(R.id.btnPrevMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, -1); refresh() }
         findViewById<Button>(R.id.btnNextMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, 1); refresh() }
-        findViewById<Button>(R.id.btnExport).setOnClickListener { exportLauncher.launch("meucarro_backup.json") }
-        findViewById<Button>(R.id.btnImport).setOnClickListener { importLauncher.launch(arrayOf("application/json", "*/*")) }
+        findViewById<Button>(R.id.btnRenameDest).setOnClickListener { renameDestDialog() }
+        findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
+        findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
+        findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
         findViewById<Button>(R.id.btnSaveSync).setOnClickListener { saveSyncCode() }
         findViewById<Button>(R.id.btnPush).setOnClickListener { doPush(true) }
         findViewById<Button>(R.id.btnPull).setOnClickListener { doPull() }
+        findViewById<Button>(R.id.btnExport).setOnClickListener { exportLauncher.launch("meucarro_backup.json") }
+        findViewById<Button>(R.id.btnImport).setOnClickListener { importLauncher.launch(arrayOf("application/json", "*/*")) }
 
         askNotificationPermission()
         handleIntent(intent)
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleIntent(intent)
-    }
-
-    override fun onResume() {
-        super.onResume()
+    private fun showPage(page: View) {
+        pageModo.visibility = if (page === pageModo) View.VISIBLE else View.GONE
+        pageMeses.visibility = if (page === pageMeses) View.VISIBLE else View.GONE
+        pageTanque.visibility = if (page === pageTanque) View.VISIBLE else View.GONE
+        pageNuvem.visibility = if (page === pageNuvem) View.VISIBLE else View.GONE
         refresh()
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent); setIntent(intent); handleIntent(intent)
+    }
+
+    override fun onResume() { super.onResume(); refresh() }
 
     override fun onPause() {
         super.onPause()
@@ -138,133 +163,64 @@ class MainActivity : AppCompatActivity() {
         if (code.isNotEmpty()) CloudSync.push(this, code, null)
     }
 
-    private fun saveSyncCode() {
-        val code = CloudSync.sanitizeCode(etSyncCode.text.toString())
-        if (code.isEmpty()) {
-            Toast.makeText(this, "Digite um código com letras/números.", Toast.LENGTH_LONG).show(); return
-        }
-        Storage.setSyncCode(this, code)
-        etSyncCode.setText(code)
-        Toast.makeText(this, "Código salvo: $code", Toast.LENGTH_SHORT).show()
-        refresh()
-    }
-
-    private fun doPush(showToast: Boolean) {
-        val code = Storage.getSyncCode(this)
-        if (code.isEmpty()) { Toast.makeText(this, "Salve um código de sincronização primeiro.", Toast.LENGTH_LONG).show(); return }
-        if (showToast) Toast.makeText(this, "Enviando para a nuvem...", Toast.LENGTH_SHORT).show()
-        CloudSync.push(this, code, object : CloudSync.Callback {
-            override fun onResult(success: Boolean, message: String) {
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
-            }
-        })
-    }
-
-    private fun doPull() {
-        val code = Storage.getSyncCode(this)
-        if (code.isEmpty()) { Toast.makeText(this, "Salve um código de sincronização primeiro.", Toast.LENGTH_LONG).show(); return }
-        Toast.makeText(this, "Baixando da nuvem...", Toast.LENGTH_SHORT).show()
-        CloudSync.pull(this, code, object : CloudSync.Callback {
-            override fun onResult(success: Boolean, message: String) {
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                if (success) refresh()
-            }
-        })
-    }
-
-    private fun startTrip() {
-        val name = etDest.text.toString().trim()
-        if (name.isEmpty()) {
-            Toast.makeText(this, "Escreva o destino desta viagem.", Toast.LENGTH_LONG).show(); return
-        }
-        Storage.incDestTrip(this, name)
-        Storage.setCurDest(this, name)
-        Toast.makeText(this, "Viagem para \"$name\" iniciada", Toast.LENGTH_SHORT).show()
-        if (Storage.getMode(this) == Storage.MODE_NONE) startAuto()
-        refresh()
-    }
-
-    private fun endTrip() {
-        val cur = Storage.getCurDest(this)
-        Storage.setCurDest(this, "")
-        if (cur.isNotEmpty()) Toast.makeText(this, "Viagem para \"$cur\" encerrada", Toast.LENGTH_SHORT).show()
-        refresh()
-    }
-
-    private fun pickDest() {
-        val dests = Storage.getDestinations(this).sorted()
-        if (dests.isEmpty()) { Toast.makeText(this, "Nenhum destino salvo ainda.", Toast.LENGTH_SHORT).show(); return }
-        AlertDialog.Builder(this)
-            .setTitle("Destinos salvos")
-            .setItems(dests.toTypedArray()) { _, which -> etDest.setText(dests[which]) }
-            .setNegativeButton("Fechar", null)
-            .show()
-    }
-
-    /** Atalhos de voz (opcionais) ainda funcionam para fixar um modo manual. */
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
-        val comp = intent.component?.className ?: ""
         val host = intent.data?.host ?: ""
         val extra = intent.getStringExtra(TrackingService.EXTRA_MODE) ?: ""
         val mode = when {
-            comp.endsWith("AliasUber") || host.equals("uber", true) || extra == Storage.MODE_UBER -> Storage.MODE_UBER
-            comp.endsWith("AliasPessoal") || host.equals("pessoal", true) || extra == Storage.MODE_PESSOAL -> Storage.MODE_PESSOAL
+            host.equals("uber", true) || extra == Storage.MODE_UBER -> Storage.MODE_UBER
+            host.equals("pessoal", true) || extra == Storage.MODE_PESSOAL -> Storage.MODE_PESSOAL
             else -> null
         }
         if (mode != null) startFixed(mode)
     }
 
+    private fun toggleMode() {
+        val current = Storage.getMode(this)
+        val newMode = if (current == Storage.MODE_UBER) Storage.MODE_PESSOAL else Storage.MODE_UBER
+        startFixed(newMode)
+    }
+
     private fun startAuto() {
-        if (!hasLocation()) {
-            pendingAuto = true
-            requestLocation()
-            return
-        }
+        if (!hasLocation()) { pendingAuto = true; requestLocation(); return }
         if (!hasUsageAccess()) {
             AlertDialog.Builder(this)
                 .setTitle("Falta o Acesso de uso")
-                .setMessage("Para detectar quando o Uber Driver está em uso, ative o \"Acesso de uso\" para o Meu Carro. Vou abrir a tela agora.")
+                .setMessage("Para detectar o Uber Driver, ative o \"Acesso de uso\" para o Meu Carro.")
                 .setPositiveButton("Abrir") { _, _ -> openUsageAccess() }
-                .setNegativeButton("Continuar assim", null)
-                .show()
+                .setNegativeButton("Continuar", null).show()
         }
         val i = Intent(this, TrackingService::class.java)
             .setAction(TrackingService.ACTION_START)
             .putExtra(TrackingService.EXTRA_MODE, Storage.MODE_AUTO)
         ContextCompat.startForegroundService(this, i)
         Toast.makeText(this, "Modo automático ativado", Toast.LENGTH_SHORT).show()
-        tvStatus.postDelayed({ refresh() }, 500)
+        btnModeCircle.postDelayed({ refresh() }, 500)
     }
 
     private fun startFixed(mode: String) {
         if (!hasLocation()) { requestLocation(); return }
         val i = Intent(this, TrackingService::class.java)
-            .setAction(TrackingService.ACTION_START)
-            .putExtra(TrackingService.EXTRA_MODE, mode)
+            .setAction(TrackingService.ACTION_START).putExtra(TrackingService.EXTRA_MODE, mode)
         ContextCompat.startForegroundService(this, i)
         val label = if (mode == Storage.MODE_UBER) "UBER" else "PESSOAL"
-        Toast.makeText(this, "Modo $label (manual) iniciado", Toast.LENGTH_SHORT).show()
-        tvStatus.postDelayed({ refresh() }, 400)
+        Toast.makeText(this, "Modo $label (manual)", Toast.LENGTH_SHORT).show()
+        btnModeCircle.postDelayed({ refresh() }, 400)
     }
 
     private fun stopTracking() {
-        val i = Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP)
-        startService(i)
+        startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
         Storage.setMode(this, Storage.MODE_NONE)
         Toast.makeText(this, "Registro parado", Toast.LENGTH_SHORT).show()
-        tvStatus.postDelayed({ refresh() }, 300)
+        btnModeCircle.postDelayed({ refresh() }, 300)
     }
 
     private fun hasLocation(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     private fun requestLocation() {
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-            REQ_LOCATION
-        )
+        ActivityCompat.requestPermissions(this,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION)
     }
 
     @Suppress("DEPRECATION")
@@ -309,7 +265,7 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         val sb = StringBuilder()
         sb.append(if (access) "OK - Acesso de uso: CONCEDIDO\n\n"
-                  else "FALTA - Acesso de uso NAO concedido.\nToque em \"Conceder acesso de uso\" e ative o Meu Carro na lista.\n\n")
+                  else "FALTA - Acesso de uso NAO concedido.\nToque em \"Conceder acesso de uso\".\n\n")
         if (last <= 0L) sb.append("Uber Driver: nenhum uso detectado nas ultimas 24h.\n")
         else sb.append("Uber Driver usado ha " + ((now - last) / 60000) + " min.\n")
         val detected = if (access && last > 0 && (now - last) <= 10 * 60 * 1000L) "UBER" else "PESSOAL"
@@ -336,131 +292,159 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ---------------- Abastecimento (marca ponto zero do tanque) ----------------
+    // ---------- Destinos ----------
+    private fun renameDestDialog() {
+        val dests = Storage.getDestinations(this).sorted()
+        if (dests.isEmpty()) { Toast.makeText(this, "Nenhum destino salvo ainda.", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this)
+            .setTitle("Escolha o destino para renomear")
+            .setItems(dests.toTypedArray()) { _, which ->
+                val old = dests[which]
+                val et = EditText(this)
+                et.setText(old)
+                AlertDialog.Builder(this)
+                    .setTitle("Novo nome")
+                    .setView(et)
+                    .setPositiveButton("Salvar") { _, _ ->
+                        val nn = et.text.toString().trim()
+                        if (nn.isNotEmpty()) { Storage.renameDest(this, old, nn); refresh() }
+                    }
+                    .setNegativeButton("Cancelar", null).show()
+            }
+            .setNegativeButton("Fechar", null).show()
+    }
+
+    // ---------- Abastecimento ----------
     private fun showFillDialog() {
         val ctx = this
         val container = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(48, 24, 48, 0) }
-        val etLiters = EditText(ctx).apply { hint = "Litros abastecidos (ex: 40)"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        val etPrice = EditText(ctx).apply { hint = "Valor total pago R$ (ex: 250)"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val etLiters = EditText(ctx).apply { hint = "Litros (ex: 40)"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val etPrice = EditText(ctx).apply { hint = "Valor total R$ (ex: 250)"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
         container.addView(etLiters); container.addView(etPrice)
-        AlertDialog.Builder(ctx)
-            .setTitle("Registrar abastecimento")
-            .setMessage("Marca o ponto zero do tanque. A partir daqui conto os km de cada modo.")
+        AlertDialog.Builder(ctx).setTitle("Registrar abastecimento")
+            .setMessage("Marca o ponto zero do tanque.")
             .setView(container)
             .setPositiveButton("Salvar") { _, _ ->
                 val liters = etLiters.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
                 val price = etPrice.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
                 Storage.addFill(ctx, liters, price)
-                Toast.makeText(ctx, "Tanque registrado. Contagem zerada.", Toast.LENGTH_SHORT).show()
-                refresh()
+                Toast.makeText(ctx, "Tanque registrado.", Toast.LENGTH_SHORT).show(); refresh()
             }
-            .setNegativeButton("Cancelar", null)
-            .show()
+            .setNegativeButton("Cancelar", null).show()
     }
 
-    // ---------------- Calculadora do tanque (litros + km) ----------------
     private fun calcTank() {
         val liters = etCalcLiters.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
         val kmTotal = etCalcKm.text.toString().replace(",", ".").toDoubleOrNull() ?: 0.0
-        if (kmTotal <= 0.0) {
-            tvCalcResult.text = "Informe os km rodados com o tanque."
-            return
-        }
-        // proporção Uber x Pessoal: usa o rastreado desde o último abastecimento; se não houver, usa o total geral
+        if (kmTotal <= 0.0) { tvCalcResult.text = "Informe os km rodados com o tanque."; return }
         val fill = Storage.lastFill(this)
-        val mP: Double
-        val mU: Double
+        val mP: Double; val mU: Double
         if (fill != null) {
             mP = Storage.getMetersPessoal(this) - fill.optDouble("meters_pessoal_at_fill", 0.0)
             mU = Storage.getMetersUber(this) - fill.optDouble("meters_uber_at_fill", 0.0)
-        } else {
-            mP = Storage.getMetersPessoal(this); mU = Storage.getMetersUber(this)
-        }
+        } else { mP = Storage.getMetersPessoal(this); mU = Storage.getMetersUber(this) }
         val tracked = mP + mU
         val loc = Locale("pt", "BR")
         val sb = StringBuilder()
         if (tracked <= 0.0) {
-            // sem rastreamento: divide meio a meio e avisa
-            val metade = kmTotal / 2.0
-            sb.append("Ainda não há rastreamento de km por modo neste tanque.\n")
             sb.append(String.format(loc, "Consumo: %.2f km/L\n", if (liters > 0) kmTotal / liters else 0.0))
-            sb.append(String.format(loc, "Sem base para dividir: %.1f km cada (estimativa 50/50).", metade))
+            sb.append("Sem rastreamento para dividir ainda.")
         } else {
             val ratioU = mU / tracked
             val kmUber = kmTotal * ratioU
-            val kmPessoal = kmTotal - kmUber
             sb.append(String.format(loc, "Consumo médio: %.2f km/L\n", if (liters > 0) kmTotal / liters else 0.0))
             sb.append(String.format(loc, "Uber: %.1f km (%.0f%%)\n", kmUber, ratioU * 100))
-            sb.append(String.format(loc, "Pessoal: %.1f km (%.0f%%)\n", kmPessoal, (1 - ratioU) * 100))
-            if (liters > 0) {
-                sb.append(String.format(loc, "Litros Uber: %.1f L | Litros Pessoal: %.1f L", liters * ratioU, liters * (1 - ratioU)))
-            }
+            sb.append(String.format(loc, "Pessoal: %.1f km (%.0f%%)", kmTotal - kmUber, (1 - ratioU) * 100))
         }
         tvCalcResult.text = sb.toString()
     }
 
     private fun confirmReset() {
-        AlertDialog.Builder(this)
-            .setTitle("Zerar totais e meses?")
-            .setMessage("Apaga a quilometragem acumulada (total e por mês) de Pessoal e Uber. O histórico de abastecimentos é mantido.")
+        AlertDialog.Builder(this).setTitle("Zerar totais e meses?")
+            .setMessage("Apaga a quilometragem (total e por mês). Abastecimentos e destinos são mantidos.")
             .setPositiveButton("Zerar") { _, _ -> Storage.resetTotals(this); refresh() }
-            .setNegativeButton("Cancelar", null)
-            .show()
+            .setNegativeButton("Cancelar", null).show()
     }
 
-    // ---------------- Tela ----------------
+    // ---------- Nuvem ----------
+    private fun saveSyncCode() {
+        val code = CloudSync.sanitizeCode(etSyncCode.text.toString())
+        if (code.isEmpty()) { Toast.makeText(this, "Digite um código com letras/números.", Toast.LENGTH_LONG).show(); return }
+        Storage.setSyncCode(this, code); etSyncCode.setText(code)
+        Toast.makeText(this, "Código salvo: $code", Toast.LENGTH_SHORT).show(); refresh()
+    }
+
+    private fun doPush(showToast: Boolean) {
+        val code = Storage.getSyncCode(this)
+        if (code.isEmpty()) { Toast.makeText(this, "Salve um código primeiro.", Toast.LENGTH_LONG).show(); return }
+        if (showToast) Toast.makeText(this, "Enviando para a nuvem...", Toast.LENGTH_SHORT).show()
+        CloudSync.push(this, code, object : CloudSync.Callback {
+            override fun onResult(success: Boolean, message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+            }
+        })
+    }
+
+    private fun doPull() {
+        val code = Storage.getSyncCode(this)
+        if (code.isEmpty()) { Toast.makeText(this, "Salve um código primeiro.", Toast.LENGTH_LONG).show(); return }
+        Toast.makeText(this, "Baixando da nuvem...", Toast.LENGTH_SHORT).show()
+        CloudSync.pull(this, code, object : CloudSync.Callback {
+            override fun onResult(success: Boolean, message: String) {
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                if (success) refresh()
+            }
+        })
+    }
+
+    // ---------- Tela ----------
     private fun shiftYm(ym: String, delta: Int): String {
         return try {
-            val parts = ym.split("-")
-            var y = parts[0].toInt()
-            var m = parts[1].toInt() + delta
-            while (m < 1) { m += 12; y-- }
-            while (m > 12) { m -= 12; y++ }
+            val parts = ym.split("-"); var y = parts[0].toInt(); var m = parts[1].toInt() + delta
+            while (m < 1) { m += 12; y-- }; while (m > 12) { m -= 12; y++ }
             String.format("%04d-%02d", y, m)
         } catch (e: Exception) { Storage.currentYm() }
     }
 
     private fun monthLabel(ym: String): String {
-        return try {
-            val parts = ym.split("-")
-            val m = parts[1].toInt()
-            "${monthNames[m - 1]}/${parts[0]}"
-        } catch (e: Exception) { ym }
+        return try { val p = ym.split("-"); "${monthNames[p[1].toInt() - 1]}/${p[0]}" } catch (e: Exception) { ym }
     }
 
     private fun refresh() {
         val loc = Locale("pt", "BR")
         val kmP = Storage.getMetersPessoal(this) / 1000.0
         val kmU = Storage.getMetersUber(this) / 1000.0
-
         val mode = Storage.getMode(this)
         val auto = Storage.isAutoEnabled(this)
+
+        val displayUber = if (auto) recentUber() else (mode == Storage.MODE_UBER)
+        if (displayUber) {
+            btnModeCircle.text = "UBER"
+            btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
+            btnModeCircle.backgroundTintList = ColorStateList.valueOf(0xFF1A6B2A.toInt())
+        } else {
+            btnModeCircle.text = "PESSOAL"
+            btnModeCircle.setTextColor(0xFF0E0E0E.toInt())
+            btnModeCircle.backgroundTintList = ColorStateList.valueOf(0xFFC9A043.toInt())
+        }
+
         tvStatus.text = if (auto) {
-            val live = if (recentUber()) "UBER" else "PESSOAL"
-            "● AUTOMÁTICO ligado — detectando agora: $live"
+            "● AUTOMÁTICO ligado — detectando: " + (if (displayUber) "UBER" else "PESSOAL")
         } else when (mode) {
             Storage.MODE_UBER -> "● REGISTRANDO: UBER (manual)"
             Storage.MODE_PESSOAL -> "● REGISTRANDO: PESSOAL (manual)"
-            else -> "○ Parado (toque em Ativar modo automático)"
+            else -> "○ Parado — toque no círculo ou em Ativar automático"
         }
 
-        val sc = Storage.getSyncCode(this)
-        tvSyncStatus.text = if (sc.isEmpty())
-            "Nuvem: sem código. Crie um código, toque em Salvar e use o mesmo em outro celular."
-        else
-            "Nuvem ativa (código: $sc). Envio automático ao sair do app. Use \"Baixar\" para restaurar."
-
         tvUsageWarn.text = if (!hasUsageAccess())
-            "⚠ Acesso de uso não concedido: sem ele, tudo conta como Pessoal. Toque em \"Conceder acesso de uso\"."
+            "⚠ Acesso de uso não concedido: sem ele tudo conta como Pessoal."
         else "✓ Acesso de uso concedido."
 
-        // Mês selecionado (navegável com os botões)
         val ym = selectedYm
         val mp = Storage.getMonthMeters(this, Storage.MODE_PESSOAL, ym) / 1000.0
         val mu = Storage.getMonthMeters(this, Storage.MODE_UBER, ym) / 1000.0
         val atual = if (ym == Storage.currentYm()) "  (mês atual)" else ""
-        tvMonth.text = String.format(loc,
-            "MÊS: %s%s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
+        tvMonth.text = String.format(loc, "MÊS: %s%s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
             monthLabel(ym), atual, mp, mu, mp + mu)
 
         val db = StringBuilder("DESTINOS — " + monthLabel(ym) + "\n")
@@ -468,17 +452,11 @@ class MainActivity : AppCompatActivity() {
         for (n in Storage.getDestinations(this).sorted()) {
             val cnt = Storage.getDestCount(this, n, ym)
             val dkm = Storage.getDestMeters(this, n, ym) / 1000.0
-            if (cnt > 0 || dkm > 0) {
-                anyDest = true
-                db.append(String.format(loc, "%s: %dx · %.1f km\n", n, cnt, dkm))
-            }
+            if (cnt > 0 || dkm > 0) { anyDest = true; db.append(String.format(loc, "%s: %dx · %.1f km\n", n, cnt, dkm)) }
         }
-        if (!anyDest) db.append("Nenhuma viagem com destino neste mês.")
-        val curDest = Storage.getCurDest(this)
-        if (curDest.isNotEmpty()) db.append("\n● Viagem ativa: " + curDest)
+        if (!anyDest) db.append("Nenhuma visita neste mês. Os destinos são salvos sozinhos quando você chega e para.")
         tvDest.text = db.toString()
 
-        // Totais + histórico por mês
         val sb = StringBuilder()
         sb.append(String.format(loc, "TOTAL GERAL\nPessoal: %.2f km\nUber: %.2f km\nSoma: %.2f km", kmP, kmU, kmP + kmU))
         val months = Storage.getMonths(this)
@@ -492,10 +470,14 @@ class MainActivity : AppCompatActivity() {
         }
         tvTotals.text = sb.toString()
 
-        // Tanque
+        val sc = Storage.getSyncCode(this)
+        tvSyncStatus.text = if (sc.isEmpty())
+            "Nuvem: sem código. Crie um código e toque em Salvar."
+        else "Nuvem ativa (código: $sc). Envio automático ao sair. Use Baixar para restaurar."
+
         val fill = Storage.lastFill(this)
         if (fill == null) {
-            tvTank.text = "TANQUE ATUAL\nNenhum abastecimento registrado.\nUse \"Registrar abastecimento\" ao encher o tanque, ou a calculadora abaixo."
+            tvTank.text = "TANQUE ATUAL\nNenhum abastecimento registrado.\nUse \"Registrar abastecimento\" ao encher."
         } else {
             val mP0 = fill.optDouble("meters_pessoal_at_fill", 0.0)
             val mU0 = fill.optDouble("meters_uber_at_fill", 0.0)
@@ -508,11 +490,11 @@ class MainActivity : AppCompatActivity() {
             val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", loc)
             val t = StringBuilder()
             t.append("TANQUE ATUAL (desde ").append(sdf.format(Date(ts))).append(")\n")
-            t.append(String.format(loc, "Pessoal: %.2f km\nUber: %.2f km\nTotal rodado: %.2f km\n", kmPTank, kmUTank, kmTotalTank))
+            t.append(String.format(loc, "Pessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km\n", kmPTank, kmUTank, kmTotalTank))
             if (liters > 0) t.append(String.format(loc, "Consumo: %.2f km/L\n", if (liters > 0) kmTotalTank / liters else 0.0))
             if (price > 0 && kmTotalTank > 0) {
                 val custoKm = price / kmTotalTank
-                t.append(String.format(loc, "Custo/km: R$ %.2f\nGasto Pessoal: R$ %.2f | Gasto Uber: R$ %.2f", custoKm, custoKm * kmPTank, custoKm * kmUTank))
+                t.append(String.format(loc, "Custo/km: R$ %.2f\nGasto Pessoal: R$ %.2f | Uber: R$ %.2f", custoKm, custoKm * kmPTank, custoKm * kmUTank))
             }
             tvTank.text = t.toString()
         }

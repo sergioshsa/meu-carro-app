@@ -8,6 +8,7 @@ import android.app.Service
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.location.Geocoder
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
@@ -19,12 +20,12 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import java.util.Locale
 
 /**
- * Serviço em primeiro plano: usa o FusedLocationProvider (GPS + wifi + sensores)
- * para medir a distância com mais precisão. Só acumula quilômetro quando o carro
- * está de fato em movimento (pela velocidade), evitando "km fantasma" parado.
- * No modo AUTOMÁTICO decide Uber x Pessoal pelo uso recente do app Uber Driver.
+ * Rastreia km com FusedLocation. No modo AUTO decide Uber x Pessoal pelo uso
+ * recente do Uber Driver. Detecta chegada (parou após rodar) e salva o destino
+ * automaticamente pela localização/endereço, contando visitas e km por lugar.
  */
 class TrackingService : Service() {
 
@@ -35,6 +36,10 @@ class TrackingService : Service() {
     private var autoMode: Boolean = false
     private var lastEffectiveMode: String = Storage.MODE_PESSOAL
 
+    private var tripMeters: Double = 0.0
+    private var stationarySince: Long = 0L
+    private var arrivalRegistered: Boolean = true
+
     companion object {
         const val ACTION_START = "com.sergiosantos.meucarro.START"
         const val ACTION_STOP = "com.sergiosantos.meucarro.STOP"
@@ -44,13 +49,17 @@ class TrackingService : Service() {
 
         const val UPDATE_MS = 2000L
         const val MIN_UPDATE_MS = 1000L
-        const val MAX_ACCURACY_M = 30f      // ignora fixes ruins
-        const val MAX_JUMP_M = 300.0        // ignora saltos irreais
-        const val MIN_SPEED_MS = 0.6f       // ~2,2 km/h: abaixo disso considera parado
-        const val MIN_DIST_IF_NO_SPEED = 8.0 // sem velocidade, só conta se andou > 8 m
+        const val MAX_ACCURACY_M = 30f
+        const val MAX_JUMP_M = 300.0
+        const val MIN_SPEED_MS = 0.6f
+        const val MIN_DIST_IF_NO_SPEED = 8.0
 
         const val UBER_PACKAGE = "com.ubercab.driver"
         const val UBER_ACTIVE_WINDOW_MS = 10 * 60 * 1000L
+
+        const val STOP_MS = 120_000L          // parado 2 min = chegou
+        const val MIN_TRIP_M = 300.0          // viagem precisa ter > 300 m
+        const val DEST_RADIUS_M = 160f        // mesmo destino se dentro de 160 m
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -75,6 +84,9 @@ class TrackingService : Service() {
                     lastEffectiveMode = requested
                 }
                 Storage.setMode(this, lastEffectiveMode)
+                tripMeters = 0.0
+                stationarySince = 0L
+                arrivalRegistered = true
                 startForeground(NOTIF_ID, buildNotification())
                 startTracking()
             }
@@ -118,17 +130,80 @@ class TrackingService : Service() {
             Storage.setMode(this, mode)
         }
         val prev = lastLocation
+        var moved = false
         if (prev != null) {
             val d = prev.distanceTo(location).toDouble()
             val moving = location.hasSpeed() && location.speed > MIN_SPEED_MS
             if (d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
                 Storage.addMeters(this, mode, d)
-                val dest = Storage.getCurDest(this)
-                if (dest.isNotEmpty()) Storage.addDestMeters(this, dest, d)
+                tripMeters += d
                 updateNotification()
+                moved = true
             }
         }
         lastLocation = location
+
+        val now = System.currentTimeMillis()
+        val fast = location.hasSpeed() && location.speed > MIN_SPEED_MS
+        if (moved || fast) {
+            // em movimento: viagem em andamento
+            stationarySince = 0L
+            if (tripMeters > 5.0) arrivalRegistered = false
+        } else {
+            // parado
+            if (stationarySince == 0L) stationarySince = now
+            if (!arrivalRegistered && tripMeters >= MIN_TRIP_M && (now - stationarySince) >= STOP_MS) {
+                arrivalRegistered = true
+                registerArrival(location.latitude, location.longitude, tripMeters)
+                tripMeters = 0.0
+            }
+        }
+    }
+
+    private fun registerArrival(lat: Double, lon: Double, meters: Double) {
+        val ctx = applicationContext
+        Thread {
+            try {
+                val existing = Storage.findNearbyDest(ctx, lat, lon, DEST_RADIUS_M)
+                val name = existing ?: run {
+                    val auto = geocodeName(lat, lon) ?: "Destino"
+                    val unique = uniqueName(ctx, auto)
+                    Storage.createDestLoc(ctx, unique, lat, lon)
+                    unique
+                }
+                Storage.incDestTrip(ctx, name)
+                if (meters > 0) Storage.addDestMeters(ctx, name, meters)
+            } catch (e: Exception) { /* ignora */ }
+        }.start()
+    }
+
+    private fun uniqueName(ctx: Context, base: String): String {
+        val existing = Storage.getDestinations(ctx)
+        if (!existing.contains(base)) return base
+        var i = 2
+        while (existing.contains("$base ($i)")) i++
+        return "$base ($i)"
+    }
+
+    private fun geocodeName(lat: Double, lon: Double): String? {
+        return try {
+            val geo = Geocoder(this, Locale("pt", "BR"))
+            @Suppress("DEPRECATION")
+            val list = geo.getFromLocation(lat, lon, 1)
+            if (list != null && list.isNotEmpty()) {
+                val a = list[0]
+                val street = a.thoroughfare
+                val num = a.subThoroughfare
+                when {
+                    !street.isNullOrBlank() && !num.isNullOrBlank() -> "$street, $num"
+                    !street.isNullOrBlank() -> street
+                    !a.subLocality.isNullOrBlank() -> a.subLocality
+                    !a.locality.isNullOrBlank() -> a.locality
+                    !a.featureName.isNullOrBlank() -> a.featureName
+                    else -> null
+                }
+            } else null
+        } catch (e: Exception) { null }
     }
 
     private fun detectMode(): String {

@@ -23,6 +23,7 @@ object Storage {
     private const val KEY_SYNC_CODE = "sync_code"
     private const val KEY_DESTINATIONS = "destinations"
     private const val KEY_CUR_DEST = "cur_dest"
+    private const val KEY_DEST_LOCS = "dest_locs"
 
     const val MODE_NONE = ""
     const val MODE_PESSOAL = "PESSOAL"
@@ -128,6 +129,61 @@ object Storage {
         for (n in list) arr.put(n)
         arr.put(name)
         p(c).edit().putString(KEY_DESTINATIONS, arr.toString()).apply()
+    }
+
+    private fun getDestLocsArr(c: Context): JSONArray {
+        val sVal = p(c).getString(KEY_DEST_LOCS, "[]") ?: "[]"
+        return try { JSONArray(sVal) } catch (e: Exception) { JSONArray() }
+    }
+
+    /** Procura um destino já salvo perto (metros) desta coordenada. Retorna o nome ou null. */
+    fun findNearbyDest(c: Context, lat: Double, lon: Double, thresholdM: Float): String? {
+        val arr = getDestLocsArr(c)
+        val res = FloatArray(1)
+        var best: String? = null
+        var bestDist = thresholdM
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            android.location.Location.distanceBetween(lat, lon, o.optDouble("lat"), o.optDouble("lon"), res)
+            if (res[0] <= bestDist) { bestDist = res[0]; best = o.optString("name") }
+        }
+        return best
+    }
+
+    /** Salva a coordenada de um destino novo. */
+    fun createDestLoc(c: Context, name: String, lat: Double, lon: Double) {
+        val arr = getDestLocsArr(c)
+        val o = JSONObject().put("name", name).put("lat", lat).put("lon", lon)
+        arr.put(o)
+        p(c).edit().putString(KEY_DEST_LOCS, arr.toString()).apply()
+        addDestination(c, name)
+    }
+
+    /** Renomeia um destino (na lista de localizacoes e migra os dados de km/contagem). */
+    fun renameDest(c: Context, oldName: String, newName: String) {
+        if (oldName == newName || newName.isBlank()) return
+        // localizacoes
+        val arr = getDestLocsArr(c)
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            if (o.optString("name") == oldName) o.put("name", newName)
+        }
+        p(c).edit().putString(KEY_DEST_LOCS, arr.toString()).apply()
+        // lista de nomes
+        val names = getDestinations(c).toMutableList()
+        val idx = names.indexOf(oldName)
+        if (idx >= 0) { names[idx] = newName } else { names.add(newName) }
+        val narr = JSONArray(); for (n in names) narr.put(n)
+        p(c).edit().putString(KEY_DESTINATIONS, narr.toString()).apply()
+        // migra meses (km e contagem) de todos os meses conhecidos
+        val e = p(c).edit()
+        for (ym in getMonths(c)) {
+            val m = getDestMeters(c, oldName, ym); val cnt = getDestCount(c, oldName, ym)
+            if (m > 0) e.putLong(destMetersKey(newName, ym), (getDestMeters(c, newName, ym) + m).toRawBits())
+            if (cnt > 0) e.putInt(destCountKey(newName, ym), getDestCount(c, newName, ym) + cnt)
+            e.remove(destMetersKey(oldName, ym)); e.remove(destCountKey(oldName, ym))
+        }
+        e.apply()
     }
 
     fun getDestMeters(c: Context, name: String, ym: String): Double =
