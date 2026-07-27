@@ -38,7 +38,7 @@
                 </FrameLayout>
 
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="Toque no círculo para trocar:  PARADO → AUTO → UBER → PESSOAL.&#10;AUTO decide sozinho e conta ao dirigir. Em casa, deixe em PARADO."
+                    android:text="Toque no círculo para trocar:  PARADO → AUTO → UBER → PESSOAL.&#10;No AUTO: Uber Driver aberto = UBER · Waze aberto = PESSOAL · nenhum = não conta."
                     android:gravity="center" android:textColor="#999999" android:textSize="11sp"
                     android:lineSpacingExtra="2dp" android:layout_marginBottom="16dp" />
 
