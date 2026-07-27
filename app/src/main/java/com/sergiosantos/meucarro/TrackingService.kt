@@ -41,6 +41,12 @@ class TrackingService : Service() {
     private var arrivalRegistered: Boolean = true
     private var lastCloudPush: Long = 0L
 
+    // De: / Para: — origem da viagem em andamento
+    private var tripStarted: Boolean = false
+    private var tripStartLat: Double = 0.0
+    private var tripStartLon: Double = 0.0
+    private var tripMode: String = Storage.MODE_PESSOAL
+
     companion object {
         const val ACTION_START = "com.sergiosantos.meucarro.START"
         const val ACTION_STOP = "com.sergiosantos.meucarro.STOP"
@@ -90,6 +96,7 @@ class TrackingService : Service() {
                 tripMeters = 0.0
                 stationarySince = 0L
                 arrivalRegistered = true
+                tripStarted = false
                 startForeground(NOTIF_ID, buildNotification())
                 startTracking()
             }
@@ -142,6 +149,12 @@ class TrackingService : Service() {
             val moving = location.hasSpeed() && location.speed > MIN_SPEED_MS
             val countable = (mode == Storage.MODE_UBER || mode == Storage.MODE_PESSOAL)
             if (countable && d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
+                if (!tripStarted) {
+                    tripStarted = true
+                    tripStartLat = prev.latitude
+                    tripStartLon = prev.longitude
+                    tripMode = mode
+                }
                 Storage.addMeters(this, mode, d)
                 tripMeters += d
                 updateNotification()
@@ -167,25 +180,34 @@ class TrackingService : Service() {
             if (stationarySince == 0L) stationarySince = now
             if (!arrivalRegistered && tripMeters >= MIN_TRIP_M && (now - stationarySince) >= STOP_MS) {
                 arrivalRegistered = true
-                registerArrival(location.latitude, location.longitude, tripMeters)
+                registerArrival(location.latitude, location.longitude, tripMeters, tripMode, tripStartLat, tripStartLon)
                 tripMeters = 0.0
+                tripStarted = false
             }
         }
     }
 
-    private fun registerArrival(lat: Double, lon: Double, meters: Double) {
+    private fun registerArrival(lat: Double, lon: Double, meters: Double, mode: String, oLat: Double, oLon: Double) {
         val ctx = applicationContext
         Thread {
             try {
                 val existing = Storage.findNearbyDest(ctx, lat, lon, DEST_RADIUS_M)
-                val name = existing ?: run {
+                val destName = existing ?: run {
                     val auto = geocodeName(lat, lon) ?: "Destino"
                     val unique = uniqueName(ctx, auto)
                     Storage.createDestLoc(ctx, unique, lat, lon)
                     unique
                 }
-                Storage.incDestTrip(ctx, name)
-                if (meters > 0) Storage.addDestMeters(ctx, name, meters)
+                Storage.incDestTrip(ctx, destName)
+                if (meters > 0) Storage.addDestMeters(ctx, destName, meters)
+
+                // De: origem da viagem — reaproveita um destino já conhecido perto dali,
+                // ou apenas rotula com o endereço (sem virar um "destino" novo por si só).
+                val originName = Storage.findNearbyDest(ctx, oLat, oLon, DEST_RADIUS_M)
+                    ?: geocodeName(oLat, oLon) ?: "Origem"
+
+                Storage.addTrip(ctx, mode, originName, destName, meters)
+
                 val code = Storage.getSyncCode(ctx)
                 if (code.isNotEmpty()) CloudSync.push(ctx, code, null)
             } catch (e: Exception) { /* ignora */ }
@@ -200,6 +222,7 @@ class TrackingService : Service() {
         return "$base ($i)"
     }
 
+    /** Rua + número, sempre com o bairro junto quando disponível (ex.: "Rua X, 123 - Bairro Y"). */
     private fun geocodeName(lat: Double, lon: Double): String? {
         return try {
             val geo = Geocoder(this, Locale("pt", "BR"))
@@ -209,13 +232,18 @@ class TrackingService : Service() {
                 val a = list[0]
                 val street = a.thoroughfare
                 val num = a.subThoroughfare
-                when {
+                val bairro = a.subLocality
+                val base = when {
                     !street.isNullOrBlank() && !num.isNullOrBlank() -> "$street, $num"
                     !street.isNullOrBlank() -> street
-                    !a.subLocality.isNullOrBlank() -> a.subLocality
                     !a.locality.isNullOrBlank() -> a.locality
                     !a.featureName.isNullOrBlank() -> a.featureName
                     else -> null
+                }
+                when {
+                    base == null && !bairro.isNullOrBlank() -> bairro
+                    base != null && !bairro.isNullOrBlank() && !base.contains(bairro) -> "$base - $bairro"
+                    else -> base
                 }
             } else null
         } catch (e: Exception) { null }

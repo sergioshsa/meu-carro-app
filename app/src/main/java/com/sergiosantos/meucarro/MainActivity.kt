@@ -13,7 +13,10 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.view.Gravity
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.LinearInterpolator
@@ -28,6 +31,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,8 +47,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvUsageWarn: TextView
     private lateinit var tvMonth: TextView
-    private lateinit var tvDest: TextView
+    private lateinit var etDestFilter: EditText
+    private lateinit var tvDestFilterResult: TextView
+    private lateinit var llTrips: LinearLayout
     private lateinit var tvTotals: TextView
+    private lateinit var tvTankMonthSummary: TextView
     private lateinit var tvTank: TextView
     private lateinit var tvFillHistory: TextView
     private lateinit var etCalcLiters: EditText
@@ -60,6 +67,7 @@ class MainActivity : AppCompatActivity() {
 
     private var pendingAuto = false
     private var selectedYm = Storage.currentYm()
+    private var selectedYmTank = Storage.currentYm()
     private val REQ_LOCATION = 100
     private val REQ_NOTIF = 101
     private val REQ_BG = 102
@@ -114,8 +122,11 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvUsageWarn = findViewById(R.id.tvUsageWarn)
         tvMonth = findViewById(R.id.tvMonth)
-        tvDest = findViewById(R.id.tvDest)
+        etDestFilter = findViewById(R.id.etDestFilter)
+        tvDestFilterResult = findViewById(R.id.tvDestFilterResult)
+        llTrips = findViewById(R.id.llTrips)
         tvTotals = findViewById(R.id.tvTotals)
+        tvTankMonthSummary = findViewById(R.id.tvTankMonthSummary)
         tvTank = findViewById(R.id.tvTank)
         tvFillHistory = findViewById(R.id.tvFillHistory)
         etCalcLiters = findViewById(R.id.etCalcLiters)
@@ -147,6 +158,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnNextMonth).setOnClickListener { selectedYm = shiftYm(selectedYm, 1); refresh() }
         findViewById<Button>(R.id.btnRenameDest).setOnClickListener { renameDestDialog() }
         findViewById<Button>(R.id.btnReset).setOnClickListener { confirmReset() }
+        etDestFilter.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { refresh() }
+        })
+        findViewById<Button>(R.id.btnPrevMonthTank).setOnClickListener { selectedYmTank = shiftYm(selectedYmTank, -1); refresh() }
+        findViewById<Button>(R.id.btnNextMonthTank).setOnClickListener { selectedYmTank = shiftYm(selectedYmTank, 1); refresh() }
         findViewById<Button>(R.id.btnAbastecer).setOnClickListener { showFillDialog() }
         findViewById<Button>(R.id.btnManageFills).setOnClickListener { manageFillsDialog() }
         findViewById<Button>(R.id.btnCalc).setOnClickListener { calcTank() }
@@ -633,6 +651,108 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ---------- Lista de viagens (De: / Para:) ----------
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun makeInfoText(text: String): View = TextView(this).apply {
+        this.text = text
+        setTextColor(0xFFAAAAAA.toInt())
+        textSize = 12f
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+    }
+
+    private fun buildTripRow(o: JSONObject): View {
+        val loc = Locale("pt", "BR")
+        val sdf = SimpleDateFormat("dd/MM · HH:mm", loc)
+        val ts = o.optLong("ts", 0L)
+        val mode = o.optString("mode", "")
+        val origin = o.optString("origin", "?")
+        val dest = o.optString("dest", "?")
+        val km = o.optDouble("meters", 0.0) / 1000.0
+        val isUber = mode == Storage.MODE_UBER
+        val modeLabel = if (isUber) "UBER" else "PESSOAL"
+        val modeBg = if (isUber) 0xFF1A6B2A.toInt() else 0xFFC9A043.toInt()
+        val modeFg = if (isUber) 0xFFFFFFFF.toInt() else 0xFF2A1E05.toInt()
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF1C1C1C.toInt())
+            setPadding(dp(14), dp(10), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val badge = TextView(this).apply {
+            text = "  $modeLabel  "
+            setTextColor(modeFg)
+            setBackgroundColor(modeBg)
+            textSize = 10f
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+        }
+        val dateTv = TextView(this).apply {
+            text = "   " + sdf.format(Date(ts))
+            setTextColor(0xFF999999.toInt())
+            textSize = 11f
+        }
+        header.addView(badge)
+        header.addView(dateTv)
+        val body = TextView(this).apply {
+            text = String.format(loc, "De: %s\nPara: %s\n%.1f km", origin, dest, km)
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 13f
+            setPadding(0, dp(6), 0, 0)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        }
+        row.addView(header)
+        row.addView(body)
+        return row
+    }
+
+    /** Preenche a lista de viagens: filtrada por local (todos os meses) ou do mês selecionado. */
+    private fun refreshTripsList(ym: String) {
+        val loc = Locale("pt", "BR")
+        llTrips.removeAllViews()
+        val filterQ = etDestFilter.text.toString().trim()
+
+        if (filterQ.isNotEmpty()) {
+            val q = filterQ.lowercase()
+            val allTrips = Storage.getTrips(this)
+            val matched = ArrayList<JSONObject>()
+            for (i in allTrips.length() - 1 downTo 0) {
+                val o = allTrips.getJSONObject(i)
+                val org = o.optString("origin", "").lowercase()
+                val dst = o.optString("dest", "").lowercase()
+                if (org.contains(q) || dst.contains(q)) matched.add(o)
+            }
+            var visits = 0; var kmTotal = 0.0
+            for (n in Storage.getDestinations(this)) {
+                if (n.lowercase().contains(q)) {
+                    visits += Storage.getDestTotalCount(this, n)
+                    kmTotal += Storage.getDestTotalMeters(this, n) / 1000.0
+                }
+            }
+            tvDestFilterResult.visibility = View.VISIBLE
+            tvDestFilterResult.text = if (visits > 0)
+                String.format(loc, "Você já foi %d vez(es) a \"%s\" — %.1f km no total (todos os meses)", visits, filterQ, kmTotal)
+            else "Nenhuma chegada registrada com esse nome ainda."
+
+            if (matched.isEmpty()) llTrips.addView(makeInfoText("Nenhuma viagem encontrada com \"$filterQ\"."))
+            else for (o in matched.take(80)) llTrips.addView(buildTripRow(o))
+        } else {
+            tvDestFilterResult.visibility = View.GONE
+            val monthTrips = Storage.getTripsForMonth(this, ym)
+            if (monthTrips.isEmpty()) {
+                llTrips.addView(makeInfoText(
+                    "Nenhuma viagem registrada neste mês ainda.\nAs viagens são salvas sozinhas quando você chega e para, com o AUTO ligado e o Waze (Pessoal) ou o Uber Driver (Uber) aberto."
+                ))
+            } else for (o in monthTrips.take(80)) llTrips.addView(buildTripRow(o))
+        }
+    }
+
     private fun refresh() {
         val loc = Locale("pt", "BR")
         val kmP = Storage.getMetersPessoal(this) / 1000.0
@@ -693,15 +813,7 @@ class MainActivity : AppCompatActivity() {
         tvMonth.text = String.format(loc, "MÊS: %s%s\nPessoal: %.2f km\nUber: %.2f km\nTotal: %.2f km",
             monthLabel(ym), atual, mp, mu, mp + mu)
 
-        val db = StringBuilder("DESTINOS — " + monthLabel(ym) + "\n")
-        var anyDest = false
-        for (n in Storage.getDestinations(this).sorted()) {
-            val cnt = Storage.getDestCount(this, n, ym)
-            val dkm = Storage.getDestMeters(this, n, ym) / 1000.0
-            if (cnt > 0 || dkm > 0) { anyDest = true; db.append(String.format(loc, "%s: %dx · %.1f km\n", n, cnt, dkm)) }
-        }
-        if (!anyDest) db.append("Nenhuma visita neste mês. Os destinos são salvos sozinhos quando você chega e para.")
-        tvDest.text = db.toString()
+        refreshTripsList(ym)
 
         val sb = StringBuilder()
         sb.append(String.format(loc, "TOTAL GERAL\nPessoal: %.2f km\nUber: %.2f km\nSoma: %.2f km", kmP, kmU, kmP + kmU))
@@ -720,6 +832,21 @@ class MainActivity : AppCompatActivity() {
         tvSyncStatus.text = if (sc.isEmpty())
             "Nuvem: sem código. Crie um código e toque em Salvar."
         else "✓ Sincronização AUTOMÁTICA ligada (código: $sc).\nSalva sozinho a cada dado novo e ao dirigir. Se reinstalar, restaura sozinho.\nGUARDE este código: com ele você recupera tudo em qualquer celular."
+
+        val ymTank = selectedYmTank
+        val fillsMonth = Storage.getFillsForMonth(this, ymTank)
+        val litersSum = fillsMonth.sumOf { it.optDouble("liters", 0.0) }
+        val priceSum = fillsMonth.sumOf { it.optDouble("price", 0.0) }
+        val kmMonthTank = (Storage.getMonthMeters(this, Storage.MODE_PESSOAL, ymTank) +
+            Storage.getMonthMeters(this, Storage.MODE_UBER, ymTank)) / 1000.0
+        val atualTank = if (ymTank == Storage.currentYm()) "  (mês atual)" else ""
+        tvTankMonthSummary.text = if (fillsMonth.isEmpty())
+            String.format(loc, "%s%s\nNenhum abastecimento neste mês.\nKm rodados no mês: %.1f km",
+                monthLabel(ymTank), atualTank, kmMonthTank)
+        else String.format(loc,
+            "%s%s\nAbastecimentos: %d\nTotal de litros: %.1f L\nTotal gasto: R$ %.2f\nKm rodados no mês: %.1f km\nConsumo médio do mês: %.2f km/L",
+            monthLabel(ymTank), atualTank, fillsMonth.size, litersSum, priceSum, kmMonthTank,
+            if (litersSum > 0) kmMonthTank / litersSum else 0.0)
 
         val fill = Storage.lastFill(this)
         if (fill == null) {

@@ -24,6 +24,7 @@ object Storage {
     private const val KEY_DESTINATIONS = "destinations"
     private const val KEY_CUR_DEST = "cur_dest"
     private const val KEY_DEST_LOCS = "dest_locs"
+    private const val KEY_TRIPS = "trips"
 
     const val MODE_NONE = ""
     const val MODE_PESSOAL = "PESSOAL"
@@ -229,6 +230,59 @@ object Storage {
         registerMonth(c, ym)
     }
 
+    /** Total de visitas a um destino, somando todos os meses. */
+    fun getDestTotalCount(c: Context, name: String): Int {
+        var t = 0
+        for (ym in getMonths(c)) t += getDestCount(c, name, ym)
+        return t
+    }
+
+    /** Total de km percorridos até um destino, somando todos os meses. */
+    fun getDestTotalMeters(c: Context, name: String): Double {
+        var t = 0.0
+        for (ym in getMonths(c)) t += getDestMeters(c, name, ym)
+        return t
+    }
+
+    // ---- Viagens (De: / Para:) ----
+
+    fun ymOf(ts: Long): String = SimpleDateFormat("yyyy-MM", Locale.US).format(Date(ts))
+
+    fun getTrips(c: Context): JSONArray {
+        val s = p(c).getString(KEY_TRIPS, "[]") ?: "[]"
+        return try { JSONArray(s) } catch (e: Exception) { JSONArray() }
+    }
+
+    /** Registra uma viagem completa: de onde saiu, para onde chegou. */
+    fun addTrip(c: Context, mode: String, origin: String, dest: String, meters: Double) {
+        val arr = getTrips(c)
+        val o = JSONObject()
+        o.put("ts", System.currentTimeMillis())
+        o.put("mode", mode)
+        o.put("origin", origin)
+        o.put("dest", dest)
+        o.put("meters", meters)
+        arr.put(o)
+        // mantém no máximo os 500 registros mais recentes
+        val trimmed = if (arr.length() > 500) {
+            val n2 = JSONArray()
+            for (i in (arr.length() - 500) until arr.length()) n2.put(arr.getJSONObject(i))
+            n2
+        } else arr
+        p(c).edit().putString(KEY_TRIPS, trimmed.toString()).apply()
+    }
+
+    /** Viagens de um mês, da mais recente para a mais antiga. */
+    fun getTripsForMonth(c: Context, ym: String): List<JSONObject> {
+        val arr = getTrips(c)
+        val out = ArrayList<JSONObject>()
+        for (i in arr.length() - 1 downTo 0) {
+            val o = arr.getJSONObject(i)
+            if (ymOf(o.optLong("ts", 0L)) == ym) out.add(o)
+        }
+        return out
+    }
+
     // ---- Abastecimentos ----
     fun getFills(c: Context): JSONArray {
         val s = p(c).getString(KEY_FILLS, "[]") ?: "[]"
@@ -279,6 +333,7 @@ object Storage {
         o.put("destinations", darr)
         o.put("dest_data", dd)
         o.put("fills", getFills(c))
+        o.put("trips", getTrips(c))
         return o.toString(2)
     }
 
@@ -313,9 +368,22 @@ object Storage {
             }
             val fills = o.optJSONArray("fills")
             if (fills != null) e.putString(KEY_FILLS, fills.toString())
+            val trips = o.optJSONArray("trips")
+            if (trips != null) e.putString(KEY_TRIPS, trips.toString())
             e.apply()
             true
         } catch (ex: Exception) { false }
+    }
+
+    /** Abastecimentos de um mês específico (para o resumo mensal do Tanque). */
+    fun getFillsForMonth(c: Context, ym: String): List<JSONObject> {
+        val arr = getFills(c)
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            if (ymOf(o.optLong("timestamp", 0L)) == ym) out.add(o)
+        }
+        return out
     }
 
     fun lastFill(c: Context): JSONObject? {
