@@ -56,6 +56,7 @@ class TrackingService : Service() {
         const val MIN_DIST_IF_NO_SPEED = 8.0
 
         const val UBER_PACKAGE = "com.ubercab.driver"
+        const val WAZE_PACKAGE = "com.waze"
         const val UBER_ACTIVE_WINDOW_MS = 10 * 60 * 1000L
 
         const val STOP_MS = 120_000L          // parado 2 min = chegou
@@ -139,7 +140,8 @@ class TrackingService : Service() {
         if (prev != null) {
             val d = prev.distanceTo(location).toDouble()
             val moving = location.hasSpeed() && location.speed > MIN_SPEED_MS
-            if (d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
+            val countable = (mode == Storage.MODE_UBER || mode == Storage.MODE_PESSOAL)
+            if (countable && d in 0.5..MAX_JUMP_M && (moving || d > MIN_DIST_IF_NO_SPEED)) {
                 Storage.addMeters(this, mode, d)
                 tripMeters += d
                 updateNotification()
@@ -219,6 +221,12 @@ class TrackingService : Service() {
         } catch (e: Exception) { null }
     }
 
+    /**
+     * Regra AUTO:
+     *  - Uber Driver aberto (com ou sem Waze) → UBER.
+     *  - Waze aberto sem Uber → PESSOAL.
+     *  - Nenhum dos dois aberto → NONE (não contabiliza).
+     */
     private fun detectMode(): String {
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
@@ -227,14 +235,21 @@ class TrackingService : Service() {
                 UsageStatsManager.INTERVAL_DAILY, now - 24L * 60 * 60 * 1000, now
             )
             var uberLast = 0L
+            var wazeLast = 0L
             if (stats != null) {
                 for (s in stats) {
                     if (s.packageName == UBER_PACKAGE && s.lastTimeUsed > uberLast) uberLast = s.lastTimeUsed
+                    if (s.packageName == WAZE_PACKAGE && s.lastTimeUsed > wazeLast) wazeLast = s.lastTimeUsed
                 }
             }
-            if (uberLast > 0 && (now - uberLast) <= UBER_ACTIVE_WINDOW_MS)
-                Storage.MODE_UBER else Storage.MODE_PESSOAL
-        } catch (e: Exception) { Storage.MODE_PESSOAL }
+            val uberOpen = uberLast > 0 && (now - uberLast) <= UBER_ACTIVE_WINDOW_MS
+            val wazeOpen = wazeLast > 0 && (now - wazeLast) <= UBER_ACTIVE_WINDOW_MS
+            when {
+                uberOpen -> Storage.MODE_UBER
+                wazeOpen -> Storage.MODE_PESSOAL
+                else -> Storage.MODE_NONE
+            }
+        } catch (e: Exception) { Storage.MODE_NONE }
     }
 
     private fun buildNotification(): Notification {
@@ -248,13 +263,20 @@ class TrackingService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val mode = lastEffectiveMode
-        val modeLabel = if (mode == Storage.MODE_UBER) "UBER" else "PESSOAL"
+        val counting = (mode == Storage.MODE_UBER || mode == Storage.MODE_PESSOAL)
+        val modeLabel = when (mode) {
+            Storage.MODE_UBER -> "UBER"
+            Storage.MODE_PESSOAL -> "PESSOAL"
+            else -> "aguardando"
+        }
         val km = if (mode == Storage.MODE_UBER)
             Storage.getMetersUber(this) / 1000.0 else Storage.getMetersPessoal(this) / 1000.0
         val title = if (autoMode) "Meu Carro - Automático ($modeLabel)" else "Meu Carro - Modo $modeLabel"
+        val text = if (counting) String.format("Registrando: %.2f km", km)
+                   else "Aguardando Waze (Pessoal) ou Uber Driver (Uber)"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(String.format("Registrando: %.2f km", km))
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_car)
             .setOngoing(true)
             .setContentIntent(openIntent)

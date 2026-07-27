@@ -284,18 +284,21 @@ class MainActivity : AppCompatActivity() {
         catch (e: Exception) { Toast.makeText(this, "Abra: Configurações > Acesso de uso", Toast.LENGTH_LONG).show() }
     }
 
-    private fun uberLastUsed(): Long {
+    private fun appLastUsed(pkg: String): Long {
         return try {
             val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val now = System.currentTimeMillis()
             val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 24L * 60 * 60 * 1000, now)
             var last = 0L
             if (stats != null) for (s in stats) {
-                if (s.packageName == "com.ubercab.driver" && s.lastTimeUsed > last) last = s.lastTimeUsed
+                if (s.packageName == pkg && s.lastTimeUsed > last) last = s.lastTimeUsed
             }
             last
         } catch (e: Exception) { 0L }
     }
+
+    private fun uberLastUsed(): Long = appLastUsed("com.ubercab.driver")
+    private fun wazeLastUsed(): Long = appLastUsed("com.waze")
 
     private fun recentUber(): Boolean {
         if (!hasUsageAccess()) return false
@@ -303,16 +306,31 @@ class MainActivity : AppCompatActivity() {
         return last > 0 && (System.currentTimeMillis() - last) <= 10 * 60 * 1000L
     }
 
+    private fun recentWaze(): Boolean {
+        if (!hasUsageAccess()) return false
+        val last = wazeLastUsed()
+        return last > 0 && (System.currentTimeMillis() - last) <= 10 * 60 * 1000L
+    }
+
     private fun testDetection() {
         val access = hasUsageAccess()
-        val last = uberLastUsed()
+        val u = uberLastUsed()
+        val w = wazeLastUsed()
         val now = System.currentTimeMillis()
         val sb = StringBuilder()
         sb.append(if (access) "OK - Acesso de uso: CONCEDIDO\n\n"
                   else "FALTA - Acesso de uso NAO concedido.\nToque em \"Conceder acesso de uso\".\n\n")
-        if (last <= 0L) sb.append("Uber Driver: nenhum uso detectado nas ultimas 24h.\n")
-        else sb.append("Uber Driver usado ha " + ((now - last) / 60000) + " min.\n")
-        val detected = if (access && last > 0 && (now - last) <= 10 * 60 * 1000L) "UBER" else "PESSOAL"
+        if (u <= 0L) sb.append("Uber Driver: nenhum uso nas ultimas 24h.\n")
+        else sb.append("Uber Driver usado ha " + ((now - u) / 60000) + " min.\n")
+        if (w <= 0L) sb.append("Waze: nenhum uso nas ultimas 24h.\n")
+        else sb.append("Waze usado ha " + ((now - w) / 60000) + " min.\n")
+        val uberOpen = access && u > 0 && (now - u) <= 10 * 60 * 1000L
+        val wazeOpen = access && w > 0 && (now - w) <= 10 * 60 * 1000L
+        val detected = when {
+            uberOpen -> "UBER (Uber Driver aberto)"
+            wazeOpen -> "PESSOAL (Waze aberto)"
+            else -> "NÃO CONTABILIZA (abra o Waze ou o Uber Driver)"
+        }
         sb.append("\nModo detectado agora: " + detected)
         AlertDialog.Builder(this).setTitle("Teste de deteccao").setMessage(sb.toString())
             .setPositiveButton("OK", null).show()
@@ -625,12 +643,24 @@ class MainActivity : AppCompatActivity() {
         // Estado do botão redondo premium: PARADO / AUTO / UBER / PESSOAL
         when {
             auto -> {
-                val u = recentUber()
-                btnModeCircle.text = "AUTO\n" + (if (u) "UBER" else "PESSOAL")
+                val uber = recentUber()
+                val waze = recentWaze()
                 btnModeCircle.setTextColor(0xFFFFFFFF.toInt())
                 applyOrbVisual(1)
-                tvStatus.text = "● AUTOMÁTICO — decidindo sozinho: " + (if (u) "UBER" else "PESSOAL") +
-                    "\nConta ao dirigir. Toque no círculo para trocar (vai a UBER)."
+                when {
+                    uber -> {
+                        btnModeCircle.text = "AUTO\nUBER"
+                        tvStatus.text = "● AUTOMÁTICO — Uber Driver aberto: contando UBER."
+                    }
+                    waze -> {
+                        btnModeCircle.text = "AUTO\nPESSOAL"
+                        tvStatus.text = "● AUTOMÁTICO — Waze aberto (sem Uber): contando PESSOAL."
+                    }
+                    else -> {
+                        btnModeCircle.text = "AUTO\naguardando"
+                        tvStatus.text = "○ AUTOMÁTICO ligado, mas NÃO está contando.\nAbra o Waze (Pessoal) ou o Uber Driver (Uber) para registrar."
+                    }
+                }
             }
             mode == Storage.MODE_UBER -> {
                 btnModeCircle.text = "UBER"
