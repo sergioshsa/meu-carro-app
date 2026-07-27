@@ -40,6 +40,12 @@ jobs:
             && echo "OK: keystore e senha conferem" \
             || { echo "ERRO: KS_PASS incorreta ou keystore invalido"; exit 1; }
 
+      - name: Sincronizar versionCode com o numero do build
+        run: |
+          sed -i "s/versionCode [0-9]\+/versionCode ${{ github.run_number }}/" app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" app/build.gradle
+          grep -E "versionCode|versionName" app/build.gradle
+
       - name: Instalar Gradle e compilar o APK
         uses: gradle/actions/setup-gradle@v4
         with:
