@@ -59,6 +59,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCalcResult: TextView
     private lateinit var etSyncCode: EditText
     private lateinit var tvSyncStatus: TextView
+    private lateinit var tvCurrentBuild: TextView
+    private lateinit var btnCheckUpdate: Button
+    private var updateDialogShowing = false
 
     private lateinit var pageModo: View
     private lateinit var pageMeses: View
@@ -134,9 +137,13 @@ class MainActivity : AppCompatActivity() {
         tvCalcResult = findViewById(R.id.tvCalcResult)
         etSyncCode = findViewById(R.id.etSyncCode)
         tvSyncStatus = findViewById(R.id.tvSyncStatus)
+        tvCurrentBuild = findViewById(R.id.tvCurrentBuild)
+        btnCheckUpdate = findViewById(R.id.btnCheckUpdate)
+        tvCurrentBuild.text = "Versão instalada: build ${AppUpdater.currentVersionCode(this)}"
         Storage.ensureSyncCode(this)
         etSyncCode.setText(Storage.getSyncCode(this))
         maybeAutoRestore()
+        checkForUpdate(silent = true)
 
         val nav = findViewById<BottomNavigationView>(R.id.bottomNav)
         nav.setOnItemSelectedListener { item ->
@@ -173,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPull).setOnClickListener { doPull() }
         findViewById<Button>(R.id.btnExport).setOnClickListener { exportLauncher.launch("meucarro_backup.json") }
         findViewById<Button>(R.id.btnImport).setOnClickListener { importLauncher.launch(arrayOf("application/json", "*/*")) }
+        btnCheckUpdate.setOnClickListener { checkForUpdate(silent = false) }
 
         askNotificationPermission()
         handleIntent(intent)
@@ -556,6 +564,64 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "Dados restaurados da nuvem", Toast.LENGTH_SHORT).show()
                     refresh()
                 }
+            }
+        })
+    }
+
+    // ---------- Atualização do app ----------
+    /** Consulta o GitHub por uma versão mais nova. Se silent=true, não avisa quando já está atualizado. */
+    private fun checkForUpdate(silent: Boolean) {
+        if (updateDialogShowing) return
+        if (!silent) {
+            btnCheckUpdate.isEnabled = false
+            btnCheckUpdate.text = "VERIFICANDO..."
+        }
+        AppUpdater.check(this, object : AppUpdater.CheckCallback {
+            override fun onChecked(current: Int, remote: AppUpdater.ReleaseInfo?, error: String?) {
+                if (!silent) {
+                    btnCheckUpdate.isEnabled = true
+                    btnCheckUpdate.text = "VERIFICAR ATUALIZAÇÃO"
+                }
+                if (isFinishing || isDestroyed) return
+                when {
+                    remote != null && remote.build > current -> showUpdateDialog(remote)
+                    !silent && error != null -> Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
+                    !silent -> Toast.makeText(this@MainActivity, "Você já está com a versão mais recente (build $current)", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+    }
+
+    private fun showUpdateDialog(remote: AppUpdater.ReleaseInfo) {
+        updateDialogShowing = true
+        AlertDialog.Builder(this)
+            .setTitle("Atualização disponível")
+            .setMessage("Uma nova versão do Meu Carro está disponível (build ${remote.build}). Deseja baixar e instalar agora?")
+            .setCancelable(true)
+            .setOnDismissListener { updateDialogShowing = false }
+            .setPositiveButton("Atualizar") { d, _ -> d.dismiss(); startDownloadUpdate(remote.apkUrl) }
+            .setNegativeButton("Agora não") { d, _ -> d.dismiss() }
+            .show()
+    }
+
+    private fun startDownloadUpdate(apkUrl: String) {
+        if (!AppUpdater.canInstall(this)) {
+            Toast.makeText(this, "Permita a instalação de apps desconhecidos para o Meu Carro atualizar sozinho", Toast.LENGTH_LONG).show()
+            try {
+                val i = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:$packageName"))
+                startActivity(i)
+            } catch (e: Exception) { /* ignora */ }
+            return
+        }
+        btnCheckUpdate.isEnabled = false
+        btnCheckUpdate.text = "BAIXANDO..."
+        Toast.makeText(this, "Baixando atualização...", Toast.LENGTH_SHORT).show()
+        AppUpdater.downloadAndInstall(this, apkUrl, object : AppUpdater.ProgressCallback {
+            override fun onDone(success: Boolean, message: String) {
+                btnCheckUpdate.isEnabled = true
+                btnCheckUpdate.text = "VERIFICAR ATUALIZAÇÃO"
+                if (isFinishing || isDestroyed) return
+                if (!success) Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             }
         })
     }
